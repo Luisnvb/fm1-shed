@@ -3,6 +3,7 @@
 #include "fm1_device.h"
 #include "instrument.h"
 #include "sampledrum.h"
+#include "fm_patch.h"
 #include <string.h>
 
 /* Single bank, no hidden second copy. CRC and a last-written commit word make
@@ -224,6 +225,7 @@ int groove_samples_finish(void)
         r = bind();
     if (r)
         state = 4;
+    else groove_fm_library_init();
     return r;
 }
 void groove_samples_cancel(void)

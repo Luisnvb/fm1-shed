@@ -1,6 +1,6 @@
 {
     "schema":  4,
-    "api":  7,
+    "api":  8,
     "kernel_abi":  3,
     "sealed_audio_api":  true,
     "block_frames":  128,
@@ -109,6 +109,6 @@
 
                            },
     "sdk_block_sha256":  "25be4238581552b1c9075f0ea51f919d353faaa8349e6f11f6bf268b6c96fa60",
-    "native_sha256":  "6a22c111978c8f36827ca83b5f71828313bcb5a3464109b44754266d9bf55e09",
+    "native_sha256":  "cf94df1316d57390499db121ccd9b0375e570160441fc77ae29111fe431725d5",
     "pi32_compiler_sha256":  "0ae79bfb1e79018a12f401050674b6ddc90c202bf81a07832e37a73c3a447c25"
 }

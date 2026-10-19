@@ -2,10 +2,12 @@
 [CmdletBinding()]
 param(
     [switch]$Package,
+    [switch]$FirmwareOnly,
     [string]$Toolchain = $env:FM1_PI32_TOOLCHAIN,
     [string]$SourceUrl = $env:FM1_SOURCE_URL
 )
 $ErrorActionPreference = 'Stop'
+if ($FirmwareOnly -and $Package) { throw 'Choose -FirmwareOnly for local hardware tests or -Package for distribution, not both.' }
 $Profile = 'dx7'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $sdk = $PSScriptRoot
@@ -312,7 +314,7 @@ if ($manifest.external_toolchain) {
     }
 }
 $synth = Get-Content -LiteralPath (Join-Path $sdk 'synth.json') -Encoding UTF8 -Raw | ConvertFrom-Json
-if ($synth.schema -ne 4 -or $synth.api -ne 7 -or $synth.kernel_abi -ne 3 -or $synth.block_frames -ne 128 -or $synth.sample_rate -ne 44100 -or
+if ($synth.schema -ne 4 -or $synth.api -ne 8 -or $synth.kernel_abi -ne 3 -or $synth.block_frames -ne 128 -or $synth.sample_rate -ne 44100 -or
     $synth.sdk_block_sha256 -cne (Hash (Join-Path $sdk 'include/fm1_block.h')) -or
     $synth.native_sha256 -cne (Hash (Join-Path $sdk 'lib/libfm1_engine.a'))) {
     throw 'Native DSP kernels and SDK audio contracts do not match. Install a matching SDK package.'
@@ -371,13 +373,14 @@ try {
         $options = @($flags)
         # This PI32 LTO plugin can discard application definitions when a
         # native SDK object has weak defaults. Keep user entry units native.
-        if ($source -in @('app/screen.c','app/transfer.c')) {
+        if ($source -in @('app/screen.c','app/transfer.c','app/midi_router.c')) {
             $options += '-fno-lto'
         }
         if ($source -eq 'app/board/panel.c') { $options += @('-fno-lto','-fno-pic') }
         $options += @('-fwrapv','-fno-fast-math','-ffp-contract=off')
         # Storage and screen run only from control; keep audio DSP on O2.
-        if ($source -in @('app/project.c','app/transfer.c','app/samples.c','app/screen.c','app/presets.c')) { $options += '-Oz' }
+        if ($source -in @('app/project.c','app/transfer.c','app/samples.c','app/screen.c','app/presets.c','app/midi_router.c','app/fm_factory.c','app/fm_library.c')) { $options += '-Oz' }
+        if ($source -eq 'app/screen.c') { $options += '-fno-inline-functions' }
         $arguments = @($options) + @('-MMD','-MF',($output + '.d'),'-c',$inputFile,'-o',$output)
         Write-Host "Compile $source"
         Run (Join-Path $bin 'clang.exe') $arguments
@@ -424,6 +427,7 @@ try {
     Write-Host "Link $Profile using prebuilt FM1 SDK"
     Run (Join-Path $bin 'pi32v2-ld.exe') $link
     Test-Firmware
+    if ($FirmwareOnly) { Package-Firmware }
     if ($Package) {
         Package-Firmware
         $packageFile = Join-Path $build 'generated/FM1_OFFICIAL_OPEN.fwsc'

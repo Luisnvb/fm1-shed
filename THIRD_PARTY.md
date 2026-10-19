@@ -18,6 +18,7 @@ Project-owned public APP sources: [GPLv3 with the FM1 SDK linking exception](LIC
 | APP / open web engine tuning | Incorporates contributions by [Vikram Rojo (PR #2)](https://github.com/m-vave/fm1_open/pull/2), with FM1 integration changes (2026-10-17). Original file licenses and notices are retained. |
 | Configuration resource | `sdk/tools/pack/cfg_tool.bin`, identical to the file in the identified official JieLi Apache-2.0 SDK distribution; see below. |
 | Boot/update resources and recovery firmware | `sdk/tools/pack/uboot.boot`, `ota.bin`, `boot-config.bin`, and `sdk/firmware/FM-1_015.fwsc`, Apache-2.0; see the resource terms below. |
+| Original 128-voice DX7 bank | `app/fm_factory.inc`: extracted without parameter or ordering changes from the bundled M-VAVE V15 recovery image (Apache-2.0), losslessly encoded for Flash in 2026. Reproduce with `node tools/Generate-Factory-DX7.mjs`; the tool pins the source package and decoded VMEM SHA-256 hashes. Demo project recipes remain separate. |
 
 Company-authored FM1 modifications, FX, arrangements and synthesized demo samples: Copyright (c) 2026 珠海笙科智能科技有限公司 (M-VAVE). Product names identify compatible formats; no upstream endorsement is implied.
 

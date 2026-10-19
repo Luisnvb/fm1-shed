@@ -302,10 +302,11 @@
         let cap;
         try {cap=capability(await this.link.query(49));}
         catch(error) {
-          // Older firmware implements the request-driven vendor update protocol
-          // without the newer capability/arming commands. A timeout alone allows
-          // that route; a malformed reply or a disconnected port never does.
-          if(!force || error.code!=='TIMEOUT' || this.link.lost)throw error;
+          // Some third-party identities share Open's numeric prefix. A missing
+          // capability reply requires explicit migration, never a silent flash.
+          // Malformed replies and disconnected ports remain errors.
+          if(error.code!=='TIMEOUT' || this.link.lost)throw error;
+          if(!force){this.mode='migration';return {identity:this.identity,migration:true};}
           this.mode='legacy';return {resume:false,identity:this.identity,legacy:true};
         }
         if(!force && cap.family!==this.pkg.family) {
@@ -471,11 +472,15 @@
     if(value||bits>=7)return null;
     return {command:bytes[5],token:bytes[6]|bytes[7]<<7,data:Uint8Array.from(out)};
   }
-  function validateVoice(patch) {
+  function validateVoice(patch,clamp=false) {
     check(patch.length===156,'DX7 音色长度无效');
     const op=[99,99,99,99,99,99,99,99,99,99,99,3,3,7,3,7,99,1,31,99,14];
     const global=[99,99,99,99,99,99,99,99,31,7,1,99,99,99,99,1,5,7,48];
-    for(let i=0;i<156;i++)check(patch[i]<=(i<126?op[i%21]:i<145?global[i-126]:i===155?63:127),'DX7 参数越界：'+i);
+    for(let i=0;i<156;i++){
+      const limit=i<126?op[i%21]:i<145?global[i-126]:i===155?63:127;
+      if(clamp)patch[i]=Math.min(patch[i],limit);
+      else check(patch[i]<=limit,'DX7 参数越界：'+i);
+    }
     return patch;
   }
   function readVoices(bytes) {
@@ -504,9 +509,31 @@
         p.set(b.slice(112,116),137);p[141]=b[116]&1;p[142]=(b[116]>>1)&7;p[143]=(b[116]>>4)&7;
         p.set(b.slice(117,128),144);
       }
-      validateVoice(p);voices.push(p);
+      // V15 banks contain a few out-of-range seven-bit VMEM values. Keep
+      // the bank bytes unchanged, but expose safe editable/playable patches.
+      validateVoice(p,bank);voices.push(p);
     }
     return voices;
+  }
+  function packVoice(patch) {
+    validateVoice(patch);const b=new Uint8Array(128);
+    for(let op=0;op<6;op++){
+      const p=patch.subarray(op*21,op*21+21),i=op*17;
+      b.set(p.subarray(0,11),i);b[i+11]=p[11]|p[12]<<2;b[i+12]=p[13]|p[20]<<3;
+      b[i+13]=p[14]|p[15]<<2;b[i+14]=p[16];b[i+15]=p[17]|p[18]<<1;b[i+16]=p[19];
+    }
+    b.set(patch.subarray(126,134),102);b[110]=patch[134];b[111]=patch[135]|patch[136]<<3;
+    b.set(patch.subarray(137,141),112);b[116]=patch[141]|patch[142]<<1|patch[143]<<4;
+    b.set(patch.subarray(144,155),117);return b;
+  }
+  function bankFile(raw,channel=0){
+    check(raw instanceof Uint8Array&&raw.length===4096&&Number.isInteger(channel)&&channel>=0&&channel<16,'DX7 音色库长度或通道无效');
+    const file=Uint8Array.from([240,67,channel,9,32,0,...raw,(-raw.reduce((a,b)=>a+b,0))&127,247]);
+    readVoices(file);return file;
+  }
+  function voiceBank(voices){
+    check(voices.length===32,'请选择包含 32 个音色的 DX7 音色库');
+    const raw=new Uint8Array(4096);voices.forEach((p,i)=>raw.set(packVoice(p),i*128));return raw;
   }
   function voiceFile(patch,channel=0) {
     validateVoice(patch);check(Number.isInteger(channel)&&channel>=0&&channel<16,'MIDI 通道无效');
@@ -571,15 +598,26 @@
     }
     async disconnect(){if(this.link)await this.link.close();this.link=null;this.projectBytes=0;this.tuningBytes=0;}
     async extensions(){
-      this.tuningBytes=0;
+      this.tuningBytes=0;this.programs=16;this.sampleCapacity=462848;this.trackRoles=false;this.bankAvailable=false;this.extendedDelay=false;
       try {
         const info=await this.query(21);
         check(info.length===7&&(info[0]&~1)===0&&le(info,1,2)===4264&&le(info,3,4)===462848,'设备文件长度无效');
         if(info[0]&1)this.tuningBytes=4264;
       } catch(error){if(error.deviceCode!==71)throw error;}
+      try {
+        const info=await this.query(22);
+        check(info.length===9&&info[0]===1&&info[1]===128&&info[2]===4&&info[3]<=1&&le(info,4,4)===446464&&(info[8]&~3)===0,'设备扩展能力回复无效');
+        this.programs=128;this.sampleCapacity=446464;this.bankAvailable=!!info[3];this.trackRoles=!!(info[8]&1);this.extendedDelay=!!(info[8]&2);
+      } catch(error){if(error.deviceCode!==71)throw error;}
     }
     projectPayload(bytes){
       projectVersion(bytes);
+      if((this.programs||16)<128){
+        let copied=false;
+        for(let t=0;t<8;t++){const at=2048+t*223;if(bytes[at]===0&&bytes[at+2]>=16){if(!copied){bytes=bytes.slice();copied=true;}bytes[at+2]=0;bytes[at+3]=1;}}
+        // The patch is embedded in the project; only its library label changes.
+      }
+      check(this.extendedDelay||bytes[3849]<=127,'请先将延迟切换为旧版支持的 FREE 时间（约 353 毫秒以内），再写入旧固件');
       if(this.tuningBytes)return tunedProject(bytes);
       if(bytes.length===4264){
         check(bytes.subarray(4068,4260).every(value=>value===0),'请先更新设备固件，再写入含调音设置的项目');
@@ -601,7 +639,7 @@
             const r=await link.read(Math.min(200,until-Date.now()));check(!link.lost,'USB 已断开，当前操作未完成');
             if(!r||r.command!==(command|64)||r.token!==token)continue;
             check(r.data.length>0,'设备回复不完整');const code=r.data[0];
-            if(code!==0&&!(emptyOK&&code===1))throw Object.assign(Error(code===1?'该项目槽为空':code===73?'采样库占用了调音存储空间，请先缩小采样库再保存项目':code===72?'内存不足，当前项目保持不变':code===71?'文件或参数无效，当前项目保持不变':'设备操作失败：'+code),{deviceCode:code});
+            if(code!==0&&!(emptyOK&&code===1))throw Object.assign(Error(code===1?'该项目槽为空':code===73?'旧采样库占用了扩展存储空间，请先备份并缩小采样库':code===72?'内存不足，当前项目保持不变':code===71?'文件或参数无效，当前项目保持不变':'设备操作失败：'+code),{deviceCode:code});
             return r.data.slice(1);
           }
         }
@@ -610,7 +648,7 @@
     }
     async download(kind,target=0) {
       if(kind===0&&this.tuningBytes)kind=3;
-      const head=await this.query(1,[kind,target]),size=le(head,0,2);check(head.length===2&&(kind?size===(kind===3?4264:kind===2?223:156):[4048,4064].includes(size)),'设备文件长度无效');
+      const head=await this.query(1,[kind,target]),size=le(head,0,2);check(head.length===2&&(kind?size===(kind===4?4096:kind===3?4264:kind===2?223:156):[4048,4064].includes(size)),'设备文件长度无效');
       const bytes=new Uint8Array(size);
       try {for(let at=0;at<size;at+=64){const n=Math.min(64,size-at),part=await this.query(2,[at&255,at>>8,n]);check(part.length===n,'文件片段不完整');bytes.set(part,at);}return bytes;}
       finally {if(this.link&&!this.link.lost)await this.query(6).catch(()=>{});}
@@ -638,7 +676,7 @@
       return data;
     }
     async samplesWrite(data,progress=()=>{},signal) {
-      check(data instanceof Uint8Array&&data.length>=512&&data.length<=462848,'采样库长度无效');
+      check(data instanceof Uint8Array&&data.length>=512&&data.length<=(this.sampleCapacity||462848),'采样库长度无效');
       // Validate before erasing the device; every caller uses the same bank format.
       globalThis.FM1Samples.read(data);
       const info=await this.query(11);globalThis.FM1Samples.status(info);
@@ -653,9 +691,27 @@
       check(saved.length===n&&saved.every((value,i)=>value===data[i]),'设备采样读回不一致，写入未确认成功；请重试');
       progress(1);
     }
+    async readBank(index){
+      check(this.programs===128&&Number.isInteger(index)&&index>=0&&index<4,'请先更新固件以使用 128 音色库');
+      const raw=await this.download(4,index);bankFile(raw);return raw;
+    }
+    async writeBank(index,raw){
+      check(Number.isInteger(index)&&index>=0&&index<4,'音色库组号无效');bankFile(raw);
+      await this.upload(4,index,raw);const saved=await this.readBank(index);
+      check(saved.every((v,i)=>v===raw[i]),'音色库读回不一致，请重新读取检查');return saved;
+    }
+    async saveVoice(program,patch){
+      check(Number.isInteger(program)&&program>=0&&program<128,'音色编号无效');
+      const voice=packVoice(patch),index=program>>5,raw=await this.readBank(index);
+      raw.set(voice,(program&31)*128);return this.writeBank(index,raw);
+    }
     async upload(kind,target,bytes) {
       if(kind===1)validateVoice(bytes);
-      else if(kind===2)check(bytes.length===223,'文件长度无效');
+      else if(kind===2){
+        check(bytes.length===223,'文件长度无效');
+        if((this.programs||16)<128&&bytes[0]===0&&bytes[2]>=16){bytes=bytes.slice();bytes[2]=0;bytes[3]=1;}
+      }
+      else if(kind===4){check(this.programs===128,'请先更新固件以使用 128 音色库');bankFile(bytes);}
       else {
         bytes=this.projectPayload(bytes);
         if(bytes.length===4264)kind=3;
@@ -668,5 +724,5 @@
     }
   }
   globalThis.FM1Web={abortable,assetBytes,crc16,inspectPackage,prepare,pack7,frame,parse,capability,Link,pairs,Updater,
-    crc32,demoFrame,demoParse,validateVoice,readVoices,voiceFile,projectVersion,upgradeProject,tunedProject,projectFile,readProjectFile,timbreFile,readTimbreFile,Library};
+    crc32,demoFrame,demoParse,validateVoice,readVoices,voiceFile,packVoice,bankFile,voiceBank,projectVersion,upgradeProject,tunedProject,projectFile,readProjectFile,timbreFile,readTimbreFile,Library};
 })();

@@ -23,6 +23,20 @@
  * Returns 0 when queued, -1 for invalid arguments/unavailable transport ring,
  * -2 when busy/full. Retry later on -2; success is not a host delivery receipt. */
 int fm1_midi_send(const uint8_t *message, size_t bytes);
+/* Per-port output uses independent bounded queues. A slow/unavailable port
+ * cannot backpressure another. Control task only, complete messages <=128B.
+ * -1 invalid/offline, -2 full; 0 queued, not a delivery receipt. */
+enum { FM1_MIDI_DIN, FM1_MIDI_USB, FM1_MIDI_BLE };
+unsigned fm1_midi_output_ports(void); /* physically supported output bit mask */
+unsigned fm1_midi_input_ports(void);  /* physically supported input bit mask */
+unsigned fm1_midi_ready_ports(void);  /* currently available output bit mask */
+int fm1_midi_send_port(unsigned port, const uint8_t *message, size_t bytes);
+/* Routing-task callback for a complete short message. Default: local input.
+ * No blocking, Flash, UI, allocation or audio edits here; queue deferred work. */
+void fm1_app_midi_received(unsigned source, const uint8_t *message, size_t bytes);
+/* Read only inside fm1_app_sysex; retain alongside a deferred request. */
+unsigned fm1_midi_input_source(void);
+
 /* Queue local keys/controllers into the instrument's MIDI input.
  * Complete short messages only (status + 7-bit data, no SysEx/running status).
  * Returns 0 when queued, -1 for invalid input or queue overflow. Overflow

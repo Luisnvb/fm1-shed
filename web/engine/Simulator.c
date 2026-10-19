@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 /* Browser platform adapter: in-memory display, storage and MIDI input. */
+#include "fm_patch.h"
 #include "internal.h"
 #include "sampledrum.h"
 #include "fm1_sea.h"
@@ -149,7 +150,49 @@ const uint8_t *fm1_flash_map(uint32_t at, size_t bytes)
 { return at <= sizeof flash && bytes <= sizeof flash - at ? flash + at : NULL; }
 int fm1_flash_invalidate(uint32_t at, size_t bytes)
 { return at <= sizeof flash && bytes <= sizeof flash - at ? 0 : FM1_FLASH_INVALID; }
-int fm1_midi_send(const uint8_t *data, size_t bytes) { return data && bytes && bytes <= 128 ? 0 : -1; }
+/* Optional test capture; the ordinary offline workbench has no live outputs. */
+static struct { uint8_t port, bytes, data[128]; } midi_capture[64];
+static unsigned capture_read, capture_write, capture_on, midi_ready = 6, midi_busy;
+static unsigned midi_source = FM1_MIDI_USB;
+unsigned fm1_midi_output_ports(void) { return 6; }
+unsigned fm1_midi_input_ports(void) { return 7; }
+unsigned fm1_midi_ready_ports(void) { return midi_ready; }
+unsigned fm1_midi_input_source(void) { return midi_source; }
+int fm1_midi_send_port(unsigned port, const uint8_t *data, size_t bytes)
+{
+    if (port >= 3 || !(midi_ready & (1U << port)) || !data || !bytes || bytes > 128) return -1;
+    if ((midi_busy & (1U << port)) || (capture_on && capture_write - capture_read == 64)) return -2;
+    if (capture_on) {
+        unsigned at = capture_write++ & 63U;
+        midi_capture[at].port = (uint8_t)port; midi_capture[at].bytes = (uint8_t)bytes;
+        memcpy(midi_capture[at].data, data, bytes);
+    }
+    return 0;
+}
+int fm1_midi_send(const uint8_t *data, size_t bytes)
+{
+    for (unsigned p = 0; p < 3; ++p) if (midi_ready & (1U << p)) {
+        int r = fm1_midi_send_port(p, data, bytes); if (r) return r;
+    }
+    return 0;
+}
+EXPORT("sim_midi_capture") void sim_midi_capture(unsigned enable)
+{ capture_on = enable != 0; capture_read = capture_write = 0; }
+EXPORT("sim_midi_ports") void sim_midi_ports(unsigned ready, unsigned busy)
+{ midi_ready = ready & 6; midi_busy = busy & 6; }
+/* Encoded result: port in bits 8..9, byte count in bits 0..7; data in sim_file. */
+EXPORT("sim_midi_output") unsigned sim_midi_output(void)
+{
+    if (capture_read == capture_write) return 0;
+    unsigned at = capture_read++ & 63U, n = midi_capture[at].bytes;
+    memcpy(file_buffer, midi_capture[at].data, n);
+    return n | (unsigned)midi_capture[at].port << 8;
+}
+EXPORT("sim_midi_setting") unsigned sim_midi_setting(unsigned track, unsigned parameter)
+{ return track < 8 ? groove_midi_setting(track, parameter) : 0; }
+EXPORT("sim_midi_edit") void sim_midi_edit(unsigned track, unsigned parameter, int delta)
+{ groove_settings_midi(track, parameter, delta); }
+
 int fm1_midi_post(const uint8_t *data, size_t bytes)
 {
     if (!data || !bytes || bytes > 3 || data[0] < 128) return -1;
@@ -180,6 +223,7 @@ EXPORT("sim_boot") void sim_boot(unsigned clear)
     }
     memset(&controls, 0, sizeof controls); controls.battery = 900; controls.knob = 1023;
     memset(leds, 0, sizeof leds); memset(previous, 0, sizeof previous);
+    capture_read = capture_write = capture_on = midi_busy = 0; midi_ready = 6; midi_source = FM1_MIDI_USB;
     now_ms = 0; frames = 0; gate = midi_read = midi_write = midi_reset = 0;
     fm1_output_reset();
     radio_features = FM1_BT_AUDIO | FM1_BT_MIDI;
@@ -222,6 +266,10 @@ EXPORT("sim_panic") void sim_panic(void)
     const uint8_t reset = 255; send(&reset, 1); memset(previous, 0, sizeof previous);
 }
 static void tap(unsigned button) { sim_control(0, button, 1); sim_control(0, button, 0); }
+EXPORT("sim_tap_tempo") void sim_tap_tempo(void)
+{
+    groove_screen_tap(fm1_millis());
+}
 EXPORT("sim_open") int sim_open(unsigned target)
 {
     sim_release();
@@ -231,7 +279,7 @@ EXPORT("sim_open") int sim_open(unsigned target)
 }
 EXPORT("sim_preset") int sim_preset(unsigned slot)
 {
-    sim_release();
+    /* The panel loader retires Normal keys and retains live Play pitches. */
     int result = groove_screen_preset(slot);
     fm1_web_control();
     return result;
@@ -364,12 +412,15 @@ EXPORT("sim_sample_bank") int sim_sample_bank(unsigned bytes)
     /* Browser worker writes only the sample portion of its private Flash array. */
     if (bytes < 512 || bytes > GROOVE_SAMPLE_BYTES) return -1;
     ++flash_revision;
+    groove_fm_library_init();
     groove_samples_init();
     while (groove_samples_status() == 1) groove_samples_poll();
     return groove_samples_status() == 2 ? 0 : -1;
 }
 EXPORT("sim_export") int sim_export(void) { return groove_project_export(file_buffer, sizeof file_buffer); }
 EXPORT("sim_import") int sim_import(unsigned bytes) { return groove_project_import(file_buffer, bytes); }
+EXPORT("sim_library_read") int sim_library_read(unsigned bank) { return groove_fm_library_read(bank,file_buffer); }
+EXPORT("sim_library_write") int sim_library_write(unsigned bank) { return groove_fm_library_write(bank,file_buffer); }
 EXPORT("sim_factory_name") const char *sim_factory_name(unsigned index) { return groove_factory_name(index); }
 EXPORT("sim_factory_project") int sim_factory_project(unsigned index)
 {
@@ -393,13 +444,22 @@ EXPORT("sim_timbre_export") int sim_timbre_export(void)
 { uint8_t v[8]; groove_screen_snapshot(v); return groove_timbre_export(v[0], file_buffer, sizeof file_buffer); }
 EXPORT("sim_timbre_import") int sim_timbre_import(void)
 { uint8_t v[8]; groove_screen_snapshot(v); return groove_timbre_import(v[0], file_buffer, sizeof(struct groove_preset)); }
-EXPORT("sim_midi") int sim_midi(unsigned bytes)
+EXPORT("sim_midi_from") int sim_midi_from(unsigned source, unsigned bytes)
 {
-    if (!bytes || bytes > 1024) return -1;
-    if (bytes <= 3) return fm1_midi_post(file_buffer, bytes);
+    if (source >= 3 || !bytes || bytes > 1024) return -1;
+    if (bytes <= 3) {
+        unsigned status = file_buffer[0], n = status < 0xf0 ? ((status & 0xe0) == 0xc0 ? 2 : 3)
+            : status == 0xf1 || status == 0xf3 ? 2 : status == 0xf2 ? 3
+            : status == 0xf6 || status == 0xf8 || status == 0xfa || status == 0xfb || status == 0xfc || status == 0xfe || status == 0xff ? 1 : 0;
+        if (status < 128 || n != bytes) return -1;
+        for (unsigned i = 1; i < bytes; ++i) if (file_buffer[i] >= 128) return -1;
+        fm1_app_midi_received(source, file_buffer, bytes); return 0;
+    }
     if (file_buffer[0] != 0xf0 || file_buffer[bytes - 1] != 0xf7) return -1;
-    fm1_app_sysex(file_buffer, bytes); fm1_web_control(); return 0;
+    midi_source = source; fm1_app_sysex(file_buffer, bytes); midi_source = FM1_MIDI_USB;
+    fm1_web_control(); return 0;
 }
+EXPORT("sim_midi") int sim_midi(unsigned bytes) { return sim_midi_from(FM1_MIDI_USB, bytes); }
 
 /* The browser has no hardware streams; the same APP mixer still runs. */
 int fm1_usb_audio_read(int32_t *pcm, unsigned frames, uint16_t gains[2])

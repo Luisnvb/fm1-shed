@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-_Static_assert(FM1_SYNTH_API == 4, "FM1 synthesis API mismatch");
+_Static_assert(FM1_SYNTH_API == 5, "FM1 synthesis API mismatch");
 
 /* Each track owns one opaque engine; no DSP layout is part of the app. */
 static struct source {
@@ -125,6 +125,17 @@ static FM1_DSP_CODE unsigned lfo_stereo(unsigned track)
 }
 /* Control-owned masks; per-track audible is published through the render gate. */
 static unsigned mute_mask, solo_mask;
+static uint8_t track_roles[GROOVE_TRACKS], input_channels[GROOVE_TRACKS];
+static struct dormant_track {
+    struct groove_preset preset;
+    struct groove_tuning tuning;
+    uint8_t arp[2], mute, solo;
+} *dormant[GROOVE_TRACKS];
+static unsigned track_group(unsigned role), track_audible(unsigned track);
+static void session_init(void);
+static void session_mix_refresh(void);
+static void session_project_row(unsigned track, const struct groove_project *p);
+static void session_arp_apply(unsigned track, const uint8_t arp[2]);
 static volatile unsigned output_level;
 static unsigned master_adc = 0xffffU;
 int groove_master_update(unsigned adc)
@@ -155,7 +166,55 @@ static struct {
     int32_t right[FM1_BLOCK_FRAMES], mix_right[FM1_BLOCK_FRAMES], delay[FM1_BLOCK_FRAMES], reverb_bus[FM1_BLOCK_FRAMES], delay_bus[FM1_BLOCK_FRAMES];
 } scratch;
 /* Effect settings are stored in the project. */
-static uint8_t effects_values[4] = {64, 64, 48, 100};
+static uint8_t effects_values[4] = {64, GROOVE_DELAY_DEFAULT, 48, 100};
+static unsigned effects_tempo = 120, effects_delay;
+unsigned groove_delay_ticks(void) { return effects_delay; }
+__attribute__((noinline, cold, minsize)) static unsigned delay_ticks(unsigned value)
+{
+    if (value < GROOVE_DELAY_SYNC) return 166U + value * 14U;
+    if (value > GROOVE_DELAY_LAST) {
+        unsigned ms = value <= 201U ? (value - 101U) * 10U : (value - 151U) * 20U;
+        return (ms * 441U + 40U) / 80U;
+    }
+    static const uint8_t pulses[] = {2, 3, 4, 6, 8, 9, 12, 18, 24};
+    unsigned denominator = effects_tempo * 24U;
+    unsigned ticks = (330750U * pulses[value - GROOVE_DELAY_SYNC] + denominator / 2U) / denominator;
+    return ticks < FM1_FX_DELAY_SAMPLES ? ticks : FM1_FX_DELAY_SAMPLES - 1U;
+}
+/* Times are monotonic within each mode. Binary search needs at most eight
+ * comparisons for FREE or four for SYNC, outside the audio gate. On a tie,
+ * keep the lower code, including divisions clamped to the buffer limit. */
+__attribute__((cold, minsize)) static unsigned delay_nearest(unsigned ticks, unsigned synced)
+{
+    unsigned best = ~0U, distance = ~0U, first = 0;
+    unsigned end = synced ? 9U : GROOVE_DELAY_FREE_LAST - 8U;
+    while (first < end) {
+        unsigned middle = (first + end) / 2U;
+        unsigned value = synced ? GROOVE_DELAY_SYNC + middle :
+            middle + (middle >= GROOVE_DELAY_SYNC ? 9U : 0U);
+        unsigned candidate = delay_ticks(value);
+        unsigned difference = candidate > ticks ? candidate - ticks : ticks - candidate;
+        if (difference < distance || (difference == distance && value < best)) {
+            distance = difference; best = value;
+        }
+        if (candidate < ticks) first = middle + 1U;
+        else end = middle;
+    }
+    return best;
+}
+__attribute__((cold, minsize)) static void effects_poll(void)
+{
+    if (!groove_delay_synced(effects_values[1])) return;
+    unsigned bpm = groove_tempo_current();
+    if (!bpm || bpm == effects_tempo) return;
+    effects_tempo = bpm; /* No division or audio gate work while BPM is unchanged. */
+    unsigned ticks = delay_ticks(effects_values[1]);
+    if (ticks == effects_delay) return;
+    fm1_web_pause();
+    effects_delay = ticks;
+    fm1_fx_configure(effects_values, ticks);
+    fm1_web_resume();
+}
 static unsigned stereo_enabled;
 __attribute__((cold, minsize)) static void stereo_refresh(void)
 {
@@ -173,12 +232,13 @@ void groove_sends_get(unsigned track, uint8_t values[2])
 { memcpy(values, tracks[track].sends, 2); }
 __attribute__((cold, minsize)) void groove_sends_edit(unsigned track, unsigned parameter, int delta)
 {
+    if (groove_track_role(track) == GROOVE_TRACK_OFF) return;
     if (track >= GROOVE_TRACKS || parameter >= 2 || !delta) return;
     int old = tracks[track].sends[parameter];
     unsigned value = delta < -old ? 0U : delta > 15 - old ? 15U : (unsigned)(old + delta);
     if (value == (unsigned)old) return;
-    groove_edit_checkpoint(0x9c000U + track * 2U + parameter);
-    groove_project_touch();
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x9c000U + track * 2U + parameter);
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
     fm1_web_pause();
     tracks[track].sends[parameter] = (uint8_t)value;
     stereo_refresh();
@@ -187,21 +247,41 @@ __attribute__((cold, minsize)) void groove_sends_edit(unsigned track, unsigned p
 void groove_effects_restore(const uint8_t values[4])
 {
     memcpy(effects_values, values, 4);
-    fm1_fx_configure(effects_values);
+    /* A newly loaded project gets its own internal BPM until MIDI locks. */
+    unsigned bpm = groove_tempo_current();
+    effects_tempo = bpm ? bpm : groove_tempo_saved();
+    effects_delay = delay_ticks(effects_values[1]);
+    fm1_fx_configure(effects_values, effects_delay);
     fm1_fx_clear();
 }
 __attribute__((cold, minsize)) void groove_effects_edit(unsigned parameter, int delta)
 {
-    if (parameter >= 4 || !delta)
-        return;
-    unsigned old = effects_values[parameter];
-    unsigned value = delta < -(int)old ? 0 : delta > 127 - (int)old ? 127 : (unsigned)((int)old + delta);
+    if (parameter > 4 || !delta) return;
+    unsigned operation = parameter; /* Mode and time are distinct user edits. */
+    unsigned old = effects_values[parameter == 4 ? 1 : parameter], value;
+    if (parameter == 4) {
+        if (groove_delay_synced(old) == (delta > 0)) return;
+        unsigned bpm = groove_tempo_current();
+        if (bpm) effects_tempo = bpm;
+        value = delay_nearest(effects_delay, delta > 0);
+        parameter = 1;
+    } else {
+        int low = parameter == 1 && groove_delay_synced(old) ? GROOVE_DELAY_SYNC : 0;
+        int high = low ? GROOVE_DELAY_LAST : parameter == 1 ? GROOVE_DELAY_FREE_LAST - 9 : 127;
+        int current = (int)old;
+        if (parameter == 1 && old > GROOVE_DELAY_LAST) current -= 9;
+        value = delta < low - current ? (unsigned)low : delta > high - current ? (unsigned)high : (unsigned)(current + delta);
+        if (parameter == 1 && !low && value >= GROOVE_DELAY_SYNC) value += 9;
+    }
     if (value != old) {
-        groove_edit_checkpoint(0x9b000U + parameter);
+        groove_edit_checkpoint(0x9b000U + operation);
         groove_project_touch();
         fm1_web_pause();
         effects_values[parameter] = (uint8_t)value;
-        fm1_fx_configure(effects_values);
+        unsigned bpm = groove_tempo_current();
+        if (bpm) effects_tempo = bpm;
+        effects_delay = delay_ticks(effects_values[1]);
+        fm1_fx_configure(effects_values, effects_delay);
         fm1_web_resume();
     }
 }
@@ -253,7 +333,7 @@ void groove_audio_stats(struct fm1_render_stats *out)
 static FM1_DSP_CODE void publish(unsigned track, unsigned level)
 {
     unsigned ready = sources[track].ptr != NULL;
-    status[track].word = tracks[track].program | ((unsigned)tracks[track].volume << 4) |
+    status[track].word = (tracks[track].program & 15U) | ((unsigned)(tracks[track].program >> 4) << 23) | ((unsigned)tracks[track].volume << 4) |
                          ((level > 127 ? 127 : level) << 11) | (ready ? 262144U : 0U) |
                          ((unsigned)tracks[track].modified << 19) |
                          ((unsigned)tracks[track].type << 20);
@@ -301,6 +381,21 @@ void groove_tuning_alt_hold(unsigned track, unsigned on)
 {
     if (track < GROOVE_TRACKS) alt_hold[track] = on != 0;
 }
+/* The owner can validate once and copy the complete table atomically at a
+ * command boundary; no per-track revalidation or unreachable partial failure. */
+int groove_tuning_capture(struct groove_tuning t[GROOVE_TRACKS])
+{
+    if (!t) return -1;
+    memcpy(t, tuning, sizeof tuning);
+    return 0;
+}
+int groove_tuning_apply(const struct groove_tuning t[GROOVE_TRACKS])
+{
+    if (!t) return -1;
+    if (memchr(t, 0x80, sizeof tuning)) return -2;
+    memcpy(tuning, t, sizeof tuning);
+    return 0;
+}
 static FM1_DSP_CODE void engine_note(unsigned track, unsigned note, unsigned velocity, int cents)
 {
     if (groove_source_type(track) == GROOVE_DX7) {
@@ -336,8 +431,9 @@ FM1_DSP_CODE void groove_note_ex(unsigned track, unsigned note, unsigned velocit
         return;
     /* Live keys, pattern gates and arpeggiator gates share pitch ownership.
      * Releasing one source never cuts an identically pitched other source. */
-    unsigned held = (!arpeggio[track].enabled && live[track][note]) ||
-                    (seq_note[track].bits[note >> 3] & (1U << (note & 7U))) || arpeggio[track].note == note;
+    unsigned generated = (seq_note[track].bits[note >> 3] & (1U << (note & 7U))) || arpeggio[track].note == note;
+    unsigned local_sequence = groove_midi_mode(track) != 2;
+    unsigned held = (!arpeggio[track].enabled && live[track][note]) || (local_sequence && generated);
     if (sequenced == 2)
         arpeggio[track].note = velocity ? (uint8_t)note : 0xff;
     else if (sequenced) {
@@ -350,7 +446,7 @@ FM1_DSP_CODE void groove_note_ex(unsigned track, unsigned note, unsigned velocit
         if (arpeggio[track].enabled && arpeggio[track].hold && !arpeggio[track].held) {
             arp_restart(track);
             memset(arpeggio[track].velocity, 0, sizeof arpeggio[track].velocity);
-            held = (seq_note[track].bits[note >> 3] & (1U << (note & 7U))) != 0;
+            held = local_sequence && (seq_note[track].bits[note >> 3] & (1U << (note & 7U)));
         }
         if (!live[track][note]) ++arpeggio[track].held;
         if (live[track][note] < 255) ++live[track][note];
@@ -364,9 +460,13 @@ FM1_DSP_CODE void groove_note_ex(unsigned track, unsigned note, unsigned velocit
             if (arpeggio[track].note == note) arpeggio[track].note = 0xff;
         }
     }
+    unsigned next_generated = (seq_note[track].bits[note >> 3] & (1U << (note & 7U))) || arpeggio[track].note == note;
+    if ((!velocity || tracks[track].audible) &&
+        (generated != next_generated || (sequenced && velocity && groove_pad_count(track))))
+        groove_midi_note(track, note, next_generated ? velocity : 0);
     if (groove_pad_count(track)) {
         int drum = groove_pad_index(track, note);
-        if (velocity && (sequenced || !arpeggio[track].enabled) && drum >= 0 && sources[track].ptr) {
+        if (velocity && (!sequenced || local_sequence) && (sequenced || !arpeggio[track].enabled) && drum >= 0 && sources[track].ptr) {
             if (groove_source_type(track) == GROOVE_SAMPLE)
                 sampledrum_trigger(sources[track].sample, (unsigned)drum, velocity);
             else
@@ -374,8 +474,7 @@ FM1_DSP_CODE void groove_note_ex(unsigned track, unsigned note, unsigned velocit
         }
         return;
     }
-    unsigned next = (!arpeggio[track].enabled && live[track][note]) ||
-                    (seq_note[track].bits[note >> 3] & (1U << (note & 7U))) || arpeggio[track].note == note;
+    unsigned next = (!arpeggio[track].enabled && live[track][note]) || (local_sequence && next_generated);
     int cents = (alt ? tuning[track].alt : tuning[track].main)[note % 12U];
     if (!held && next) engine_note(track, note, velocity, cents);
     else if (held && !next) engine_note(track, note, 0, 0);
@@ -429,13 +528,14 @@ unsigned groove_arp_setting(unsigned t, unsigned parameter)
 }
 __attribute__((cold, minsize)) void groove_arp_edit(unsigned t, unsigned parameter, int delta)
 {
+    if (groove_track_role(t) == GROOVE_TRACK_OFF) return;
     if (t >= GROOVE_TRACKS || parameter >= 6 || !delta) return;
     int value = (int)groove_arp_setting(t, parameter) + delta;
     int limit = parameter == 4 ? 50 : parameter == 5 ? 1 : 3;
     if (value < 0) value = 0;
     if (value > limit) value = limit;
     if (value == (int)groove_arp_setting(t, parameter)) return;
-    groove_edit_checkpoint(0x9d000U + t * 8U + parameter);
+    if (track_roles[t] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x9d000U + t * 8U + parameter);
     fm1_web_pause();
     arp_restart(t); /* Keep held keys; the next event uses the edited values. */
     if (parameter == 0) arpeggio[t].rate = (uint8_t)value;
@@ -452,7 +552,7 @@ __attribute__((cold, minsize)) void groove_arp_edit(unsigned t, unsigned paramet
         }
     }
     fm1_web_resume();
-    groove_project_touch();
+    if (track_roles[t] == GROOVE_TRACK_NORMAL) groove_project_touch();
 }
 static FM1_DSP_CODE void arp_next(unsigned t)
 {
@@ -535,6 +635,8 @@ unsigned groove_arp_test_note(unsigned t) { return t < GROOVE_TRACKS ? arpeggio[
 
 static FM1_DSP_CODE void panic(unsigned track)
 {
+    groove_midi_track_reset(track);
+    alt_hold[track] = 0;
     modulation[track].wheel = 0;
     arpeggio[track].note = 0xff;
     arpeggio[track].next = arpeggio[track].held = 0;
@@ -561,15 +663,23 @@ static FM1_DSP_CODE void panic(unsigned track)
     else
         drum808_kit_panic(sources[track].drums);
 }
+/* Control task only, with rendering paused. Audio MIDI reset events use the
+ * recording queue instead, preserving their order with preceding notes. */
+static __attribute__((cold, minsize)) void control_panic(unsigned track)
+{
+    panic(track);
+    groove_edit_track_reset(track);
+}
 __attribute__((cold, minsize)) void groove_arp_set(unsigned track, unsigned enabled)
 {
+    if (groove_track_role(track) == GROOVE_TRACK_OFF) return;
     if (track >= GROOVE_TRACKS || enabled > 1 || enabled == arpeggio[track].enabled) return;
-    groove_edit_checkpoint(0x9d000U + track * 8U + 6U);
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x9d000U + track * 8U + 6U);
     fm1_web_pause();
-    panic(track);
+    control_panic(track);
     arpeggio[track].enabled = (uint8_t)enabled;
     fm1_web_resume();
-    groove_project_touch();
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
 }
 /* MIDI overrides only the addressed step-lock parameter. The caller owns the
  * audio lane or holds the render gate. */
@@ -760,11 +870,12 @@ static FM1_DSP_CODE void midi(const uint8_t *m, size_t n)
         return;
     }
     unsigned channel = m[0] & 15U;
-    unsigned track = channel == 9 ? 7 : channel;
-    if (track < GROOVE_TRACKS &&
-        demo_message(m, n, groove_channel(track))) {
-        groove_record_midi(m, n);
-        if (message(track, m, n))
+    if (!demo_message(m, n, channel)) return;
+    for (unsigned track = 0; track < GROOVE_TRACKS; ++track) {
+        if (track_roles[track] == GROOVE_TRACK_OFF || input_channels[track] != channel) continue;
+        uint8_t routed[3] = {(uint8_t)((m[0] & 0xf0U) | groove_channel(track)), n > 1 ? m[1] : 0, n > 2 ? m[2] : 0};
+        groove_record_midi(routed, n);
+        if (message(track, m, n) && track_roles[track] == GROOVE_TRACK_NORMAL)
             groove_edit_midi_changed();
     }
 }
@@ -828,7 +939,7 @@ __attribute__((cold, minsize)) static void source_destroy(unsigned track)
 }
 __attribute__((cold, minsize)) int groove_source_set(unsigned track, unsigned type)
 {
-    if (track >= GROOVE_TRACKS || type >= GROOVE_SOURCES)
+    if (track >= GROOVE_TRACKS || type >= GROOVE_SOURCES || track_roles[track] == GROOVE_TRACK_OFF)
         return -1;
     if (tracks[track].type == type && sources[track].ptr)
         return 0;
@@ -840,8 +951,8 @@ __attribute__((cold, minsize)) int groove_source_set(unsigned track, unsigned ty
         fm1_web_resume();
         return -1;
     }
-    groove_edit_checkpoint(0x90000U + track);
-    panic(track);
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x90000U + track);
+    control_panic(track);
     source_destroy(track);
     sources[track] = next;
     arpeggio[track].enabled = 0;
@@ -853,16 +964,18 @@ __attribute__((cold, minsize)) int groove_source_set(unsigned track, unsigned ty
     tracks[track].gain_volume = tracks[track].volume;
     tracks[track].gain = source_gain(type, tracks[track].volume);
     status[track].edit_dirty = 1;
-    if (!!old_pads != !!groove_pad_count(track)) {
-        struct groove_step cells[64] = {{0}};
-        for (unsigned i = 0; i < 64; ++i) cells[i].note = groove_pad_count(track) ? 0 : 60;
-        groove_sequence_replace(track, 0, cells, 64);
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) {
+        if (!!old_pads != !!groove_pad_count(track)) {
+            struct groove_step cells[64] = {{0}};
+            for (unsigned i = 0; i < 64; ++i) cells[i].note = groove_pad_count(track) ? 0 : 60;
+            groove_sequence_replace(track, 0, cells, 64);
+        }
+        struct groove_sequence_options options;
+        groove_sequence_options_copy(&options);
+        for (unsigned i = 0; i < GROOVE_LOCKS; ++i)
+            if (options.lock[i].track == track) options.lock[i].track = 255;
+        groove_sequence_options_set(&options);
     }
-    struct groove_sequence_options options;
-    groove_sequence_options_copy(&options);
-    for (unsigned i = 0; i < GROOVE_LOCKS; ++i)
-        if (options.lock[i].track == track) options.lock[i].track = 255;
-    groove_sequence_options_set(&options);
     groove_sequence_source_changed(track);
     stereo_refresh();
     publish(track, 0);
@@ -871,10 +984,13 @@ __attribute__((cold, minsize)) int groove_source_set(unsigned track, unsigned ty
 }
 __attribute__((cold, minsize)) void fm1_web_init(void)
 {
+    groove_midi_init();
     output_level = 0;
     master_adc = 0xffffU;
     memset(tuning, 0, sizeof tuning);
     memset(alt_hold, 0, sizeof alt_hold);
+    groove_fm_library_init();
+    session_init();
     arp_defaults();
     memset(live, 0, sizeof live);
     memset(seq_note, 0, sizeof seq_note);
@@ -909,7 +1025,7 @@ __attribute__((cold, minsize)) void fm1_web_init(void)
     audio_reset();
     groove_sequence_init();
     groove_clock_set(GROOVE_CLOCK_INTERNAL);
-    const uint8_t default_effects[4] = {64, 64, 48, 100};
+    const uint8_t default_effects[4] = {64, GROOVE_DELAY_DEFAULT, 48, 100};
     groove_effects_restore(default_effects);
     stereo_refresh();
     groove_edit_init();
@@ -922,15 +1038,17 @@ void fm1_web_tick(void) { fm1_control_request(); }
 __attribute__((cold, minsize)) void groove_samples_stop(void)
 {
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
-        if (tracks[t].type == GROOVE_SAMPLE && sources[t].ptr) panic(t);
+        if (tracks[t].type == GROOVE_SAMPLE && sources[t].ptr) control_panic(t);
 }
 void fm1_web_control(void)
 {
+    groove_midi_poll();
     groove_samples_poll();
     groove_project_poll();
     groove_transfer_poll();
     groove_edit_poll();
     groove_screen_control();
+    effects_poll();
 }
 void fm1_web_midi(const uint8_t *message, size_t bytes)
 {
@@ -1113,7 +1231,7 @@ static unsigned edit_base(unsigned track, unsigned parameter, unsigned value)
 }
 __attribute__((cold, minsize)) void groove_control_edit(unsigned track, int program_steps, int volume_steps, int cutoff_steps)
 {
-    if (track >= GROOVE_TRACKS)
+    if (track >= GROOVE_TRACKS || track_roles[track] == GROOVE_TRACK_OFF)
         return;
     unsigned type = groove_source_type(track);
     int count = type == GROOVE_DX7 ? FM1_FM_PROGRAMS : type == GROOVE_PSG ? 4 : type == GROOVE_303 ? 2 : 1;
@@ -1132,14 +1250,15 @@ __attribute__((cold, minsize)) void groove_control_edit(unsigned track, int prog
         fm1_web_resume();
         return;
     }
-    groove_edit_checkpoint(0x91000U + track);
-    groove_project_touch();
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x91000U + track);
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
     groove_lock_restore(track);
     if (program_steps) {
         uint8_t m[2] = {
             (uint8_t)(0xc0 + groove_channel(track)),
             (uint8_t)(((int)tracks[track].program + program_steps % count + count) % count)};
         message(track, m, 2);
+        if (type == GROOVE_DX7) groove_edit_track_reset(track);
     }
     if (next_volume != volume) {
         uint8_t m[3] = {(uint8_t)(0xb0 + groove_channel(track)), 7, (uint8_t)next_volume};
@@ -1156,7 +1275,7 @@ void groove_get_view(unsigned track, unsigned step, struct groove_view *view)
     if (!view || track >= 8 || step >= 64)
         return;
     uint32_t s = status[track].word;
-    view->program = s & 15U;
+    view->program = (uint8_t)((s & 15U) | ((s >> 23) & 7U) << 4);
     view->volume = (s >> 4) & 127U;
     view->level = (s >> 11) & 127U;
     view->ready = (s >> 18) & 1U;
@@ -1170,10 +1289,10 @@ void groove_get_view(unsigned track, unsigned step, struct groove_view *view)
 }
 __attribute__((cold, minsize)) void groove_mix_toggle(unsigned track, int solo)
 {
-    if (track >= GROOVE_TRACKS)
+    if (track >= GROOVE_TRACKS || track_roles[track] == GROOVE_TRACK_OFF)
         return;
-    groove_edit_checkpoint(0x92000U + track);
-    groove_project_touch();
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x92000U + track);
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
     fm1_web_pause();
     groove_lock_restore(track);
     if (solo) {
@@ -1183,8 +1302,7 @@ __attribute__((cold, minsize)) void groove_mix_toggle(unsigned track, int solo)
         mute_mask ^= 1U << track;
         if (mute_mask & (1U << track)) solo_mask &= ~(1U << track);
     }
-    for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
-        tracks[t].audible = !(mute_mask & (1U << t)) && (!solo_mask || (solo_mask & (1U << t)));
+    session_mix_refresh();
     fm1_web_resume();
 }
 static unsigned drum_count(unsigned part)
@@ -1271,8 +1389,8 @@ __attribute__((cold, minsize)) void groove_tone_edit(unsigned track, unsigned pa
     if (type != GROOVE_808) old = edit_base(track, type == GROOVE_SAMPLE ? part * 6U + parameter : parameter, old);
     unsigned value = adjust_value(old, delta, p->max);
     if (value != old) {
-        groove_edit_checkpoint(0x93000U + track * 256U + part * 12U + parameter);
-        groove_project_touch();
+        if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x93000U + track * 256U + part * 12U + parameter);
+        if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
         groove_lock_restore(track);
         if (groove_source_type(track) == GROOVE_303)
             bass_parameter(track, parameter, value);
@@ -1297,6 +1415,11 @@ __attribute__((cold, minsize)) int groove_fm_copy(unsigned track, uint8_t patch[
 {
     if (groove_source_type(track) != GROOVE_DX7 || !patch)
         return -1;
+    if (track_roles[track] == GROOVE_TRACK_OFF) {
+        memcpy(patch,dormant[track]->preset.data,156);
+        if (controls) *controls=dormant[track]->preset.controls;
+        return 0;
+    }
     if (edit_snapshot.track != track || status[track].edit_dirty) {
         fm1_web_pause();
         memcpy(edit_snapshot.patch, sources[track].patch, sizeof edit_snapshot.patch);
@@ -1411,11 +1534,11 @@ __attribute__((cold, minsize)) int groove_fm_import(unsigned track, const uint8_
     for (unsigned i = 0; i < 156; ++i)
         if (patch[i] > fm_limit(i))
             return GROOVE_PROJECT_INVALID;
-    groove_edit_checkpoint(0x94000U + track);
-    groove_project_touch();
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x94000U + track);
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
     fm1_web_pause();
     groove_lock_restore(track);
-    panic(track);
+    control_panic(track);
     memcpy(sources[track].patch, patch, 156);
     memset(&tracks[track].controls, 0, sizeof tracks[track].controls);
     tracks[track].controls.envelope[2] = 100;
@@ -1439,8 +1562,8 @@ __attribute__((cold, minsize)) void groove_fm_name_edit(unsigned track, unsigned
         return;
     fm1_web_pause();
     if (sources[track].patch[145 + character] != (uint8_t)value) {
-        groove_edit_checkpoint(0x95000U + track);
-        groove_project_touch();
+        if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x95000U + track);
+        if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
         groove_lock_restore(track);
         sources[track].patch[145 + character] = (uint8_t)value;
         tracks[track].modified = 1;
@@ -1451,6 +1574,7 @@ __attribute__((cold, minsize)) void groove_fm_name_edit(unsigned track, unsigned
 }
 __attribute__((cold, minsize)) void groove_fm_edit(unsigned track, unsigned parameter, int delta)
 {
+    if (groove_track_role(track) == GROOVE_TRACK_OFF) return;
     if (groove_source_type(track) != GROOVE_DX7 || parameter >= 145 || !delta)
         return;
     unsigned limit = fm_limit(parameter);
@@ -1458,8 +1582,8 @@ __attribute__((cold, minsize)) void groove_fm_edit(unsigned track, unsigned para
     unsigned old = edit_base(track, parameter, sources[track].patch[parameter]);
     unsigned value = adjust_value(old, delta, limit);
     if (value != old) {
-        groove_edit_checkpoint(0x96000U + track * 256U + parameter);
-        groove_project_touch();
+        if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x96000U + track * 256U + parameter);
+        if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
         groove_lock_restore(track);
         sources[track].patch[parameter] = (uint8_t)value;
         status[track].edit_dirty = 1;
@@ -1474,13 +1598,14 @@ __attribute__((cold, minsize)) void groove_fm_edit(unsigned track, unsigned para
 }
 __attribute__((cold, minsize)) void groove_lfo_edit(unsigned track, unsigned parameter, int delta)
 {
+    if (groove_track_role(track) == GROOVE_TRACK_OFF) return;
     if (track >= GROOVE_TRACKS || groove_source_type(track) == GROOVE_DX7 || parameter >= 4 || !delta) return;
     uint8_t values[4]; groove_lfo_copy(track, values);
     unsigned limit = parameter < 2 ? 100 : parameter == 2 ? 1 : 3;
     unsigned value = adjust_value(values[parameter], delta, limit);
     if (value == values[parameter]) return;
-    groove_edit_checkpoint(0x9c000U + track * 4U + parameter);
-    groove_project_touch();
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x9c000U + track * 4U + parameter);
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
     fm1_web_pause();
     values[parameter] = (uint8_t)value;
     memcpy(tracks[track].controls.envelope, values, 4);
@@ -1505,13 +1630,14 @@ static void adsr_apply(unsigned track)
 }
 __attribute__((cold, minsize)) void groove_adsr_edit(unsigned track, unsigned parameter, int delta)
 {
+    if (groove_track_role(track) == GROOVE_TRACK_OFF) return;
     if (groove_source_type(track) != GROOVE_DX7 || parameter >= 4 || !delta)
         return;
     fm1_web_pause();
     unsigned value = adjust_value(tracks[track].controls.envelope[parameter], delta, 100);
     if (value != tracks[track].controls.envelope[parameter] || !tracks[track].controls.enabled) {
-        groove_edit_checkpoint(0x97000U + track * 4U + parameter);
-        groove_project_touch();
+        if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x97000U + track * 4U + parameter);
+        if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
         groove_lock_restore(track);
         tracks[track].controls.envelope[parameter] = (uint8_t)value;
         /* Turning an envelope control is enough to hear it. Browsing ENV
@@ -1523,12 +1649,13 @@ __attribute__((cold, minsize)) void groove_adsr_edit(unsigned track, unsigned pa
 }
 __attribute__((cold, minsize)) void groove_adsr_enable(unsigned track, int enabled)
 {
+    if (groove_track_role(track) == GROOVE_TRACK_OFF) return;
     if (groove_source_type(track) != GROOVE_DX7)
         return;
     fm1_web_pause();
     if (tracks[track].controls.enabled != (enabled != 0)) {
-        groove_edit_checkpoint(0x98000U + track);
-        groove_project_touch();
+        if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x98000U + track);
+        if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
         groove_lock_restore(track);
         tracks[track].controls.enabled = enabled != 0;
         adsr_apply(track);
@@ -1537,10 +1664,11 @@ __attribute__((cold, minsize)) void groove_adsr_enable(unsigned track, int enabl
 }
 __attribute__((cold, minsize)) void groove_operator_toggle(unsigned track, unsigned op)
 {
+    if (groove_track_role(track) == GROOVE_TRACK_OFF) return;
     if (groove_source_type(track) != GROOVE_DX7 || op >= 6)
         return;
-    groove_edit_checkpoint(0x99000U + track);
-    groove_project_touch();
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x99000U + track);
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
     fm1_web_pause();
     groove_lock_restore(track);
     unsigned muted = tracks[track].controls.operators ^= (uint8_t)(1U << op), mask = 0;
@@ -1558,17 +1686,18 @@ __attribute__((cold, minsize)) void groove_operator_toggle(unsigned track, unsig
 }
 __attribute__((cold, minsize)) void groove_mono_set(unsigned track, unsigned mono)
 {
+    if (groove_track_role(track) == GROOVE_TRACK_OFF) return;
     unsigned type = groove_source_type(track);
     if (type != GROOVE_DX7 && type != GROOVE_303)
         return;
     fm1_web_pause();
     if (tracks[track].controls.mono != (mono != 0)) {
-        groove_edit_checkpoint(0x9a000U + track);
-        groove_project_touch();
+        if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0x9a000U + track);
+        if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_project_touch();
         groove_lock_restore(track);
         tracks[track].controls.mono = mono != 0;
         if (type == GROOVE_303)
-            panic(track);
+            control_panic(track);
         else if (sources[track].fm)
             synth_dx7_set_poly_mode(sources[track].fm, (uint8_t)(mono != 0));
         tracks[track].modified = 1;
@@ -1668,7 +1797,7 @@ __attribute__((cold, minsize)) int groove_project_valid(const struct groove_proj
         if (p->name[i] < 32 || p->name[i] > 126)
             return 0;
     for (unsigned i = 0; i < sizeof p->effects; ++i)
-        if (p->effects[i] > 127)
+        if (p->effects[i] > (i == 1 ? GROOVE_DELAY_FREE_LAST : 127))
             return 0;
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t) {
         const struct groove_preset *v = &p->preset[t];
@@ -1718,7 +1847,7 @@ __attribute__((cold, minsize)) int groove_project_capture(struct groove_project 
         return GROOVE_PROJECT_INVALID;
     fm1_web_pause();
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
-        if (!sources[t].ptr) {
+        if (!sources[t].ptr && track_roles[t] != GROOVE_TRACK_OFF) {
             fm1_web_resume();
             return GROOVE_PROJECT_MEMORY;
         }
@@ -1732,6 +1861,10 @@ __attribute__((cold, minsize)) int groove_project_capture(struct groove_project 
     groove_effects_get(p->effects);
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t) {
         struct groove_preset *v = &p->preset[t];
+        if (track_roles[t] == GROOVE_TRACK_OFF) {
+            uint8_t pages = v->sequence_pages; *v = dormant[t]->preset; v->sequence_pages = pages;
+            memcpy(p->arp[t], dormant[t]->arp, 2); continue;
+        }
         v->type = tracks[t].type;
         v->program = tracks[t].program;
         v->volume = tracks[t].volume;
@@ -1756,6 +1889,11 @@ __attribute__((cold, minsize)) int groove_project_capture(struct groove_project 
             unsigned index = parameter_lock[t].parameter;
             if (v->type == GROOVE_808) v->volume = parameter_lock[t].base;
             else v->data[index] = parameter_lock[t].base;
+        }
+        if (track_roles[t] == GROOVE_TRACK_PLAY) {
+            memset(p->step[t], 0, sizeof p->step[t]);
+            if (!groove_pad_count(t)) for (unsigned step=0;step<64;++step) p->step[t][step].note=60;
+            for (unsigned i=0;i<GROOVE_LOCKS;++i) if (p->sequence.lock[i].track==t) p->sequence.lock[i].track=255;
         }
         v->data[209] = tracks[t].sends[0] | (tracks[t].sends[1] << 4);
         p->arp[t][0] = arpeggio[t].rate | (arpeggio[t].mode << 2) |
@@ -1813,14 +1951,18 @@ static __attribute__((cold, minsize)) void track_preset_apply(unsigned t, const 
     tracks[t].sends[1] = v->data[209] >> 4;
     lfo_reset(t);
     tracks[t].gain = source_gain(v->type, v->volume);
-    tracks[t].audible = !(mute_mask & (1U << t)) && (!solo_mask || (solo_mask & (1U << t)));
+    tracks[t].audible = track_audible(t);
     status[t].edit_dirty = 1;
     publish(t, 0);
 }
+#define SESSION_PAUSE fm1_web_pause
+#define SESSION_RESUME fm1_web_resume
+#include "track_session.inc"
+
 /* A track import must leave other voices, modulation, effects and clocks running. */
 __attribute__((cold, minsize)) int groove_timbre_apply(unsigned track, const struct groove_project *p)
 {
-    if (track >= GROOVE_TRACKS || !groove_project_valid(p))
+    if (track >= GROOVE_TRACKS || track_roles[track] == GROOVE_TRACK_OFF || !groove_project_valid(p))
         return GROOVE_PROJECT_INVALID;
     const struct groove_preset *v = &p->preset[track];
     struct source next;
@@ -1830,8 +1972,8 @@ __attribute__((cold, minsize)) int groove_timbre_apply(unsigned track, const str
         fm1_web_resume();
         return GROOVE_PROJECT_MEMORY;
     }
-    groove_edit_checkpoint(0xb0000U + track);
-    panic(track);
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) groove_edit_checkpoint(0xb0000U + track);
+    control_panic(track);
     if (reuse)
         source_reset(&sources[track], v->type);
     else {
@@ -1839,8 +1981,10 @@ __attribute__((cold, minsize)) int groove_timbre_apply(unsigned track, const str
         sources[track] = next;
     }
     track_preset_apply(track, v);
-    groove_sequence_replace(track, 0, p->step[track], 64);
-    groove_sequence_options_set(&p->sequence);
+    if (track_roles[track] == GROOVE_TRACK_NORMAL) {
+        groove_sequence_replace(track, 0, p->step[track], 64);
+        groove_sequence_options_set(&p->sequence);
+    }
     groove_sequence_source_changed(track);
     stereo_refresh();
     edit_snapshot.track = ~0U;
@@ -1857,13 +2001,14 @@ __attribute__((cold, minsize)) static int project_apply(const struct groove_proj
         void *ptr, *allocation;
     } next[GROOVE_TRACKS];
     struct source created;
-    unsigned used = 0, reused = 0;
+    unsigned used = track_group(GROOVE_TRACK_PLAY) | track_group(GROOVE_TRACK_OFF), reused = used;
+    unsigned normal = track_group(GROOVE_TRACK_NORMAL);
     fm1_web_pause();
     /* Reserve matching tracks first, then reuse other instances of the same
      * type. Until every missing instance is allocated, all old state stays
      * untouched. Reloading/reordering the same types needs no heap allocation. */
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t) {
-        if (sources[t].ptr && tracks[t].type == p->preset[t].type) {
+        if ((normal & (1U << t)) && sources[t].ptr && tracks[t].type == p->preset[t].type) {
             next[t].ptr = sources[t].ptr;
             next[t].allocation = sources[t].allocation;
             used |= 1U << t;
@@ -1902,15 +2047,28 @@ __attribute__((cold, minsize)) static int project_apply(const struct groove_proj
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
         if (!(used & (1U << t)))
             source_destroy(t);
-    arp_defaults();
-    memset(live, 0, sizeof live);
-    memset(seq_note, 0, sizeof seq_note);
-    memset(parameter_lock, 0, sizeof parameter_lock);
+    for (unsigned t = 0; t < GROOVE_TRACKS; ++t) if (normal & (1U << t)) {
+        groove_midi_track_reset(t);
+        alt_hold[t] = 0;
+        memset(live[t], 0, sizeof live[t]);
+        memset(&seq_note[t], 0, sizeof seq_note[t]);
+        memset(&parameter_lock[t], 0, sizeof parameter_lock[t]);
+        session_arp_apply(t, p->arp[t]);
+    }
     /* Older projects could save both flags. Solo wins on import. */
-    mute_mask = p->mute & ~p->solo;
-    solo_mask = p->solo;
+    mute_mask = (mute_mask & ~normal) | (p->mute & ~p->solo & normal);
+    solo_mask = (solo_mask & ~normal) | (p->solo & normal);
     for (unsigned t = 0; t < GROOVE_TRACKS; ++t) {
         const struct groove_preset *v = &p->preset[t];
+        if (!(normal & (1U << t))) {
+            session_project_row(t, p);
+            if (track_roles[t] == GROOVE_TRACK_OFF) {
+                tracks[t].type = v->type; tracks[t].program = v->program;
+                tracks[t].volume = v->volume; tracks[t].controls = v->controls;
+                tracks[t].modified = v->modified; tracks[t].audible = 0; publish(t, 0);
+            }
+            continue;
+        }
         sources[t].ptr = next[t].ptr;
         sources[t].allocation = next[t].allocation;
         if (reused & (1U << t))
@@ -1927,6 +2085,8 @@ __attribute__((cold, minsize)) static int project_apply(const struct groove_proj
     }
     audio_reset();
     groove_sequence_restore(p);
+    for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
+        if (normal & (1U << t)) groove_edit_track_reset(t);
     groove_effects_restore(p->effects);
     stereo_refresh();
     groove_project_metadata(p);

@@ -87,15 +87,11 @@ static unsigned bar_minor(const struct scene *s, unsigned bar)
     static const uint8_t quality[4][4] = {{0,0,1,0},{1,0,0,0},{0,1,1,0},{1,1,0,0}};
     return quality[s->minor + 2*(s->motif & 1U)][bar];
 }
-static FM1_DSP_DATA const char fm_names[FM1_FM_PROGRAMS][11] = {
+static FM1_DSP_DATA const char fm_names[FM1_FM_FACTORY_PROGRAMS][11] = {
     "NEON KEYS ","ORBIT BELL","SOFT ORGAN","ROUND BASS","WARM AIR  ","WOOD REED ",
     "SOFT EP   ","DRY CLAV  ","FM GUITAR ","MARIMBA   ","VIBES     ","SOFT BRASS",
     "FM STRINGS","SUB BASS  ","METAL HIT ","SOFT LEAD "
 };
-const char *groove_fm_program_name(unsigned program)
-{
-    return program < FM1_FM_PROGRAMS ? fm_names[program] : "UNKNOWN   ";
-}
 /* Three independently voiced operator pairs: body, colour and transient.
  * Unequal carrier levels avoid three identical full-level voices stacking. */
 /* Pack recipe fields without changing the serialized patch layout. */
@@ -105,7 +101,7 @@ struct fm_voice {
     uint8_t attack, decay, settle, release, body, sustain, mod_attack, mod_release, feedback;
     struct fm_pair pair[3];
 };
-static FM1_DSP_DATA const struct fm_voice voices[FM1_FM_PROGRAMS] = {
+static FM1_DSP_DATA const struct fm_voice voices[FM1_FM_FACTORY_PROGRAMS] = {
     {96,52,30,62,84,0,99,66,0, {{98,1,7,54,1,0,65,38},{91,1,8,60,1,0,57,58},{79,1,6,48,7,0,80,0}}},
     {99,50,28,53,70,0,99,62,0, {{96,1,7,58,3,50,59,0},{82,2,7,48,7,0,68,0},{69,3,7,35,11,0,80,0}}},
     {95,65,45,78,99,99,95,78,0, {{90,1,7,0,1,0,65,0},{87,2,7,0,1,0,65,0},{74,3,7,0,1,0,65,0}}},
@@ -123,9 +119,8 @@ static FM1_DSP_DATA const struct fm_voice voices[FM1_FM_PROGRAMS] = {
     {99,65,40,72,48,0,99,76,0, {{89,1,7,65,7,31,67,0},{70,2,7,58,11,47,73,0},{56,3,7,48,13,79,78,0}}},
     {88,60,40,71,96,90,82,75,1, {{96,1,7,45,1,0,65,83},{80,1,8,31,2,0,70,72},{71,2,6,24,1,0,74,66}}}
 };
-FM1_DSP_CODE void groove_fm_program(uint8_t p[156], unsigned tone)
+static void demo_voice(uint8_t p[156], unsigned tone)
 {
-    tone %= FM1_FM_PROGRAMS;
     const struct fm_voice *sound = &voices[tone];
     memset(p, 0, 156);
     memcpy(p + 145, fm_names[tone], 10);
@@ -162,7 +157,7 @@ static void preset(struct groove_preset *p, const struct part *v)
     p->type = v->source; p->volume = v->level; p->modified = 1;
     p->controls.envelope[2] = 100;
     if (v->source == GROOVE_DX7) {
-        groove_fm_program(p->data, v->tone); p->program = v->tone; p->modified = 0;
+        demo_voice(p->data, v->tone); p->program = v->tone; p->modified = 0;
     }
     else if (v->source == GROOVE_303) {
         static const uint8_t bass[4][BASS303_NPARAMS] = {

@@ -185,7 +185,7 @@ static unsigned music_page, subpage_return, project_return, rec_before_press, ef
 static unsigned seq_page, arp_page;
 static unsigned boot_active, boot_phase;
 static uint32_t boot_started;
-static const char *const seq_pages[] = {"1/5 BASIC", "2/5 STEP DETAILS", "3/5 RHYTHM/REC", "4/5 LOCKS", "5/5 SYNC / LOOP"};
+static const char *const seq_pages[] = {"1/8 BASIC", "2/8 STEP DETAILS", "3/8 RHYTHM/REC", "4/8 LOCKS", "5/8 SYNC / LOOP", "6/8 MIDI TRACK", "7/8 MIDI ROUTING", "8/8 TRACK ROLE"};
 static unsigned rec_down, rec_used;
 static uint32_t rec_ms;
 static int octave;
@@ -205,6 +205,7 @@ static uint8_t tone_pages[GROOVE_TRACKS][GROOVE_PADS + 1], drum_parts[GROOVE_TRA
 static uint32_t operator_time[6], operator_held, operator_long;
 static uint8_t key_note[27], key_track[27], retry_reset;
 static uint32_t previous_buttons, previous_keys, blocked_keys, frame_ms, glo_ms;
+static uint32_t project_keys; /* Held Play pitches across a project remapping. */
 static uint32_t encoder_time[7];
 static int8_t encoder_direction[7];
 static uint8_t encoder_speed[7];
@@ -212,6 +213,7 @@ static unsigned glo_down, glo_used, ble_device, ble_was_linked, ble_view, ble_ac
 static int ble_result, source_result;
 static unsigned ble_forget, ble_stage, ble_seconds;
 static uint32_t ble_stage_since;
+static uint32_t health_output;
 static uint32_t health_at, health_underruns, health_dropped, health_adapted, health_dma;
 static int project_result;
 static unsigned project_reload, project_operation;
@@ -273,7 +275,9 @@ static struct groove_fm_controls frame_controls;
 static struct fm1_ble_device frame_devices[FM1_BLE_MAX_DEVICES];
 static uint32_t frame_time;
 
-static int clamp(int value, int low, int high)
+/* Share frequently used control helpers instead of repeating their bodies
+ * in every editor. These run at panel rate, outside the audio/scan paths. */
+static __attribute__((noinline)) int clamp(int value, int low, int high)
 {
     return value < low ? low : value > high ? high : value;
 }
@@ -341,7 +345,7 @@ static void open_subpage(unsigned target)
 static int post(uint8_t command, uint8_t a, uint8_t b, unsigned bytes)
 {
     const uint8_t message[3] = {command, a, b};
-    if (!fm1_midi_post(message, bytes))
+    if (!groove_midi_local(message, bytes))
         return 1;
     retry_reset = 1;
     return 0;
@@ -491,7 +495,7 @@ static __attribute__((noinline)) void header(const struct groove_view *v)
     if (first || (changed & (7U << 18))) {
         paint_fill(45, 15, 32, 7, BACK);
         text(45, 15, !v->clock_mode ? "BPM" : v->clock_state == GROOVE_CLOCK_LOST
-            ? "LOST" : v->clock_state == GROOVE_CLOCK_LOCKED ? "EXT" : "WAIT",
+            ? "LOST" : v->clock_state == GROOVE_CLOCK_LOCKED ? (groove_midi_setting(track,6) == 1 ? "USB" : groove_midi_setting(track,6) == 2 ? "BLE" : groove_midi_setting(track,6) == 3 ? "DIN" : "EXT") : "WAIT",
             1, v->clock_state == GROOVE_CLOCK_LOST ? AMBER : DIM, BACK);
     }
     if (first || (changed & ((1U << 16) | (1U << 28))))
@@ -536,10 +540,11 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
     for (unsigned t = 0; t < 8; ++t) {
         unsigned y = 48 + 18 * t;
         if (paint_rendering && (y >= paint_top + PAINT_ROWS || y + 16 <= paint_top)) continue;
-        uint32_t meta = v[t].program | ((uint32_t)v[t].volume << 4) | ((t == track) << 11) |
-                        ((uint32_t)v[t].modified << 12) | ((uint32_t)v[t].muted << 13) |
-                        ((uint32_t)v[t].solo << 14) | ((uint32_t)v[t].ready << 15) |
-                        ((uint32_t)v[t].type << 16) | ((uint32_t)midi_active[t] << 19);
+        uint32_t meta = v[t].program | ((uint32_t)v[t].volume << 7) | ((t == track) << 14) |
+                        ((uint32_t)v[t].modified << 15) | ((uint32_t)v[t].muted << 16) |
+                        ((uint32_t)v[t].solo << 17) | ((uint32_t)v[t].ready << 18) |
+                        ((uint32_t)v[t].type << 19) | ((uint32_t)midi_active[t] << 22) |
+                        ((uint32_t)groove_track_role(t) << 23);
         if (meta != cache->row_cache[t]) {
             cache->row_cache[t] = meta;
             paint_fill(5, y, 71, 16, BACK);
@@ -547,8 +552,8 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
             paint_fill(6, y, 18, 16, bg);
             number(12, y + 5, t + 1, 1, 1, t == track ? BACK : colors[t], bg);
             paint_fill(7, y + 12, 3, 3, midi_active[t] ? GREEN : bg);
-            char fm_name[8];
-            memcpy(fm_name, groove_fm_program_name(v[t].program), 7); fm_name[7] = 0;
+            char fm_name[8]={0}; uint8_t patch[156];
+            if (v[t].type==GROOVE_DX7 && !groove_fm_copy(t,patch,NULL)) memcpy(fm_name,patch+145,7);
             text(29, y + 1,
                  !v[t].ready                  ? "ERROR"
                  : v[t].type == GROOVE_DX7    ? fm_name
@@ -559,7 +564,9 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
                                               : "808 KIT",
                  1, colors[t], BACK);
             text(29, y + 9,
-                 v[t].muted      ? "MUTE"
+                 groove_track_role(t) == GROOVE_TRACK_OFF ? "OFF"
+                 : groove_track_role(t) == GROOVE_TRACK_PLAY ? (v[t].muted ? "P MUT" : v[t].solo ? "P SOLO" : "PLAY")
+                 : v[t].muted      ? "MUTE"
                  : v[t].solo     ? "SOLO"
                  : v[t].modified ? "EDITED"
                                  : "",
@@ -1156,32 +1163,43 @@ static __attribute__((noinline)) void effects_draw(void)
     if (cache->title_cache != title) {
         cache->title_cache = title;
         paint_fill(8, 40, 224, 36, BACK);
-        if (effects_page) text(8, 40, "SHARED FX / ALL TRACKS", 1, TEXT, BACK);
+        if (effects_page) text(8, 40, effects_page == 2 ? "DELAY / SEQ TAP" : "SHARED FX / ALL TRACKS", 1, TEXT, BACK);
         else {
             text(8, 40, "TRACK", 1, TEXT, BACK);
             number(44, 40, track + 1U, 1, 1, ACCENT, BACK);
             text(60, 40, source_names[frame_views[track].type], 1, TEXT, BACK);
         }
-        text(8, 64, effects_page ? "PRESETS: BACK TO TRACK" : "PRESETS: SHARED SETTINGS", 1, DIM, BACK);
+        text(8, 64, "PRESETS: TRACK / SHARED / DELAY", 1, DIM, BACK);
     }
     static const char *const shared[4] = {"REV TIME", "DLY TIME", "FEEDBACK", "RETURN"};
     static const char *const local[4] = {"REV SEND", "DLY SEND", "TRK VOL", "ALL RET"};
-    const char *const *labels = effects_page ? shared : local;
+    static const char *const delay[4] = {"SYNC", "TIME MS", "BPM", "FEEDBACK"};
+    static const char *const division[] = {"1/32T", "1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/8D", "1/4"};
+    const char *const *labels = effects_page == 2 ? delay : effects_page ? shared : local;
     for (unsigned i = 0; i < 4; ++i) {
-        unsigned value = effects_page && i == 1 ? (166U + values[i] * 14U) * 80U / 441U : values[i];
-        if (cache->row_cache[i] != value) {
-            unsigned first = cache->row_cache[i] == ~0U;
-            cache->row_cache[i] = value;
-            if (first) {
-                text(8, 91 + i * 22, labels[i], 1, TEXT, BACK);
-                if (effects_page && i == 1) text(190, 91 + i * 22, "MS", 1, DIM, BACK);
-                if (!effects_page && i < 2) text(190, 91 + i * 22, "%", 1, DIM, BACK);
-            }
-            number(164, 91 + i * 22, value, 3, 1, ACCENT, BACK);
+        unsigned value = effects_page == 2 && !i ? values[1] : values[i], synced = groove_delay_synced(values[1]);
+        const char *label = labels[i];
+        char display[12];
+        if (effects_page == 2 && !i) strcpy(display, synced ? "ON" : "OFF");
+        else if (effects_page && i == 1 && synced) {
+            label = "DIVISION"; strcpy(display, division[values[1] - GROOVE_DELAY_SYNC]);
+        } else if (effects_page == 2 && i == 2 && frame_views[track].clock_mode) {
+            strcpy(display, "MIDI");
+        } else {
+            if (effects_page && i == 1) value = (groove_delay_ticks() * 80U + 220U) / 441U;
+            else if (effects_page == 2) value = i == 2 ? frame_views[track].tempo : values[2];
+            decimal(display, (int)value, 1);
         }
-        char number_text[12];
-        decimal(number_text, (int)value, 1);
-        knob(i, labels[i], number_text, colors[i]);
+        /* Knob cache covers labels as well as values when FREE/SYNC changes. */
+        if (cache->row_cache[i] != (value | (synced << 16) | ((unsigned)frame_views[track].clock_mode << 17))) {
+            cache->row_cache[i] = (value | (synced << 16) | ((unsigned)frame_views[track].clock_mode << 17));
+            paint_fill(8, 88 + i * 22, 224, 18, BACK);
+            text(8, 91 + i * 22, label, 1, TEXT, BACK);
+            text(164, 91 + i * 22, display, 1, ACCENT, BACK);
+            if (effects_page && i == 1 && !synced) text(190, 91 + i * 22, "MS", 1, DIM, BACK);
+            if (!effects_page && i < 2) text(190, 91 + i * 22, "%", 1, DIM, BACK);
+        }
+        knob(i, label, display, colors[i]);
     }
 }
 static void leds(const struct groove_view *v, unsigned visible)
@@ -1450,7 +1468,7 @@ static void draw_page_body(const struct fm1_ble_status *ble)
             else if (col == 2) strcpy(value, groove_sequence_setting(2) ? "1 BAR" : "OFF");
             else decimal(value, v->next_length, 1);
         } else if (visible == STEPS && seq_page == 4) {
-            static const char *const labels[] = {"CLOCK", "BPM", "LENGTH", "-"};
+            static const char *const labels[] = {"CLOCK", "BPM", "LENGTH", "CLK IN"};
             label = labels[col];
             if (!col) strcpy(value, v->clock_mode ? "MIDI" : "INT");
             else if (col == 1) {
@@ -1461,7 +1479,26 @@ static void draw_page_body(const struct fm1_ble_status *ble)
                 }
                 else decimal(value, v->tempo, 1);
             } else if (col == 2) decimal(value, v->next_length, 1);
-            else strcpy(value, "--");
+            else { static const char *const sources[] = {"AUTO", "USB", "BLE", "DIN"}; strcpy(value, sources[groove_midi_setting(track,6)]); }
+        } else if (visible == STEPS && seq_page == 7) {
+            static const char *const roles[] = {"NORMAL", "PLAY", "OFF"};
+            label = col == 0 ? "ROLE" : col == 1 ? "IN CH" : "";
+            if (!col) strcpy(value,roles[groove_track_role(track)]);
+            else if (col == 1) decimal(value,groove_midi_input_channel(track)+1,1);
+            else value[0] = 0;
+        } else if (visible == STEPS && seq_page >= 5) {
+            static const uint8_t parameters[2][4] = {{0,1,2,4},{3,5,7,8}};
+            static const char *const labels[2][4] = {{"SEQ/ARP", "OUT CH", "OUT PORT", "KEY OUT"}, {"LOCAL", "CLK OUT", "THRU IN", "THRU OUT"}};
+            static const char *const modes[] = {"LOCAL", "BOTH", "MIDI"};
+            static const char *const ports[] = {"OFF", "DIN", "USB", "DIN+USB", "BLE", "DIN+BLE", "USB+BLE", "ALL"};
+            static const char *const sources[] = {"DIN", "USB", "BLE"};
+            unsigned parameter = parameters[seq_page - 5][col], setting = groove_midi_setting(track,parameter);
+            label = labels[seq_page - 5][col];
+            if (!parameter) strcpy(value,modes[setting]);
+            else if (parameter == 1) decimal(value,setting + 1,1);
+            else if (parameter == 2 || parameter == 8) strcpy(value,ports[setting]);
+            else if (parameter == 7) strcpy(value,sources[setting]);
+            else strcpy(value,setting ? "ON" : "OFF");
         } else if (visible == MIX) {
             unsigned t = (track & ~3U) + col;
             static const char *const labels[8] = {"TRACK 1", "TRACK 2", "TRACK 3", "TRACK 4",
@@ -1672,24 +1709,35 @@ static void paint_flush(void)
     paint_rendering = 0;
     cache = &saved_cache;
 }
-static int release_keys(void)
+static int release_keys_except(uint32_t keep)
 {
     for (unsigned key = 0; key < 27; ++key)
-        if (key_note[key] != 0xff) {
-            if (!post((uint8_t)(0x80 + groove_channel(key_track[key])), key_note[key], 0, 3))
+        if (key_note[key] != 0xff && !(keep & (1U << key))) {
+            if (!post((uint8_t)(0x80 + groove_midi_input_channel(key_track[key])), key_note[key], 0, 3))
                 return 0;
             key_note[key] = 0xff;
+            project_keys &= ~(1U << key);
         }
     return 1;
 }
+static int release_keys(void) { return release_keys_except(0); }
 /* HOME and the list load immediately, including over unsaved edits.
  * Selecting a preset replaces the workspace without writing a project slot. */
 static int preset_load(unsigned start, uint32_t now)
 {
-    if (!release_keys()) return -1;
-    blocked_keys |= previous_keys;
     project_result = preset_bank ? groove_factory_load(preset_slot) : groove_project_load_slot(preset_slot);
     if (project_result) { page = PRESET_BROWSER; return project_result; }
+    unsigned channels = 0; uint32_t keep = 0;
+    for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
+        if (groove_track_role(t) == GROOVE_TRACK_PLAY) channels |= 1U << groove_midi_input_channel(t);
+    for (unsigned key = 0; key < 27; ++key)
+        if (key_note[key] != 0xff && (channels & (1U << groove_midi_input_channel(key_track[key]))))
+            keep |= 1U << key;
+    /* A physical key can feed Normal and Play together. The project has
+     * retired Normal voices; retain its original pitch until key release. */
+    if (!release_keys_except(keep)) return -1;
+    project_keys = keep;
+    blocked_keys |= previous_keys & ~keep;
     preset_loaded = 1;
     preset_project_revision = groove_project_revision();
     preset_current_slot = preset_slot; preset_current_bank = preset_bank;
@@ -1703,7 +1751,12 @@ static int preset_load(unsigned start, uint32_t now)
     page = music_page = OVERVIEW;
     notice = start ? "PRESET LOADED - PLAYING" : "PRESET LOADED - PLAY TO START";
     notice_until = now + 2000U;
-    if (start && !post(0xfa, 0, 0, 1)) return -1;
+    if (start) {
+        struct groove_view view = {0}; groove_get_view(track, cursor, &view);
+        /* A live Play session keeps its transport during project replacement.
+         * Sending Start again would rewind that clock and restart its ARP. */
+        if (!view.playing && !post(0xfa, 0, 0, 1)) return -1;
+    }
     return 0;
 }
 static void toggle_step(unsigned step)
@@ -1739,6 +1792,7 @@ void groove_screen_init(void)
     ble_stage_since = fm1_millis();
     struct fm1_engine_stats health;
     fm1_engine_stats_read(&health);
+    health_output = groove_midi_dropped();
     health_at = fm1_millis(); health_underruns = health.underruns; health_dropped = health.midi_dropped;
     struct fm1_audio_stats dma;
     fm1_audio_stats_read(&dma);
@@ -1755,7 +1809,7 @@ void groove_screen_init(void)
     memset(project_stored, 0, sizeof project_stored);
     cache->shown_page = ~0U;
     led_cache = button_led_cache = 0;
-    memset(key_note, 0xff, sizeof key_note);
+    memset(key_note, 0xff, sizeof key_note); project_keys = 0;
     memset(operator_page, 0, sizeof operator_page);
     memset(operator_selected, 0, sizeof operator_selected);
     memset(lfo_page, 0, sizeof lfo_page);
@@ -1797,6 +1851,12 @@ static void select_track(int delta)
         selected_note = groove_pad_note(track, drum);
     }
 }
+void groove_screen_tap(uint32_t now)
+{
+    int bpm = groove_tempo_tap(now);
+    notice = bpm < 0 ? "TAP: EXTERNAL MIDI CLOCK" : bpm ? "TAP TEMPO APPLIED" : "TAP AGAIN / HOME+SEQ";
+    notice_until = now + 1500U;
+}
 static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                           const struct fm1_ble_status *ble)
 {
@@ -1812,7 +1872,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         if (!post(0xff, 0, 0, 1))
             return 0;
         retry_reset = 0;
-        memset(key_note, 0xff, sizeof key_note);
+        memset(key_note, 0xff, sizeof key_note); project_keys = 0;
     }
     unsigned old_page = page, old_mode = navigation_mode();
     unsigned arp_tap = arp_down && !(controls->buttons & BUTTON(ARP)) && !arp_long;
@@ -1857,7 +1917,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             (BUTTON(HOME) | BUTTON(PLAY)) && (pressed & (BUTTON(HOME) | BUTTON(PLAY)))) {
         blocked_keys |= controls->keys;
         if (!post(0xff, 0, 0, 1)) return 0;
-        memset(key_note, 0xff, sizeof key_note);
+        memset(key_note, 0xff, sizeof key_note); project_keys = 0;
         page = music_page = OVERVIEW;
         writing = glo_down = glo_used = project_reload = edit_down = edit_long = 0;
         arp_down = arp_long = seq_down = rec_down = 0;
@@ -1874,6 +1934,13 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         notice = r ? "NOTHING TO UNDO / STOP REC FIRST" : "UNDO / REDO APPLIED";
         notice_until = now + 2000U;
         page = music_page;
+        goto controls_done;
+    }
+    if ((pressed & BUTTON(SEQ)) && ((controls->buttons & BUTTON(HOME)) ||
+        (page == EFFECTS && effects_page == 2 && controls->buttons == BUTTON(SEQ)))) {
+        groove_screen_tap(now);
+        seq_down = edit_down = 0;
+        if (controls->buttons & BUTTON(HOME)) page = music_page;
         goto controls_done;
     }
     if ((controls->buttons & (BUTTON(HOME) | BUTTON(GLO))) == (BUTTON(HOME) | BUTTON(GLO)) &&
@@ -2097,7 +2164,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
             } else if (action == 18) { page = BLE; ble_view = ble_forget = ble_action = 0; ble_result = 0; }
             else {
                 if (!post(0xff, 0, 0, 1)) return 0;
-                memset(key_note, 0xff, sizeof key_note); writing = 0; page = OVERVIEW;
+                memset(key_note, 0xff, sizeof key_note); project_keys = 0; writing = 0; page = OVERVIEW;
             }
             notice = r == -3 ? "COPY MATCHING STEP / PAGE / TRACK FIRST"
                 : r == -2 ? "CHORD / LOCK TABLE FULL" : r ? "UNAVAILABLE / INCOMPATIBLE"
@@ -2221,7 +2288,7 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                 }
                 int oct_delta = (int)((pressed >> OCT_UP) & 1U) - (int)((pressed >> OCT_DOWN) & 1U);
                 if (page == STEPS) {
-                    unsigned next = (unsigned)clamp((int)seq_page + controls->encoders[1], 0, 4);
+                    unsigned next = (unsigned)clamp((int)seq_page + controls->encoders[1], 0, 7);
                     struct groove_view v = {0}; groove_get_view(track, cursor, &v);
                     int move = controls->encoders[6] + (!next ? controls->encoders[3] : 0);
                     if (next != seq_page || move || oct_delta) {
@@ -2238,6 +2305,23 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                             ? GROOVE_CLOCK_MIDI : GROOVE_CLOCK_INTERNAL);
                         groove_tempo_edit(controls->encoders[3]);
                         sequence_length_adjust(controls->encoders[4]);
+                        groove_settings_midi(track,6,controls->encoders[5]);
+                        if (controls->encoders[3] && groove_clock_mode()) {
+                            notice = "EXT CLOCK - CHANGE BPM AT SOURCE"; notice_until = now + 2000U;
+                        }
+                    } else if (seq_page == 7) {
+                        if (controls->encoders[2] || controls->encoders[3]) { blocked_keys |= controls->keys; if (!release_keys()) return 0; }
+                        for (unsigned i=0;i<2;++i) if (controls->encoders[2+i]) {
+                            int r=groove_settings_track(track,i,controls->encoders[2+i]);
+                            notice=r ? "TRACK SETTING FAILED" : "TRACK SETTING - NOTES RELEASED";
+                            notice_until=now+1500U;
+                        }
+                    } else if (seq_page >= 5) {
+                        static const uint8_t parameters[2][4] = {{0,1,2,4},{3,5,7,8}};
+                        for (unsigned i = 0; i < 4; ++i) if (controls->encoders[2+i]) {
+                            groove_settings_midi(track,parameters[seq_page-5][i],controls->encoders[2+i]);
+                            notice = "MIDI SETTING - NOTES RELEASED"; notice_until = now + 1500U;
+                        }
                     }
                 }
                 if (page == ARP_EDIT) {
@@ -2261,9 +2345,14 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
                     for (unsigned i = 0; i < 3; ++i) groove_fm_edit(track, parameters[i], controls->encoders[2 + i]);
                     groove_control_edit(track, 0, controls->encoders[5], 0);
                 } else if (page == EFFECTS) {
-                    unsigned next = (unsigned)clamp((int)effects_page + controls->encoders[6], 0, 1);
+                    unsigned next = (unsigned)clamp((int)effects_page + controls->encoders[6], 0, 2);
                     if (next != effects_page) { effects_page = next; cache->shown_page = ~0U; }
-                    if (effects_page) {
+                    if (effects_page == 2) {
+                        groove_effects_edit(4, controls->encoders[2]);
+                        groove_effects_edit(1, controls->encoders[3]);
+                        groove_tempo_edit(controls->encoders[4]);
+                        groove_effects_edit(2, controls->encoders[5]);
+                    } else if (effects_page) {
                         for (unsigned i = 0; i < 4; ++i)
                             groove_effects_edit(i, controls->encoders[2 + i]);
                     } else {
@@ -2447,7 +2536,7 @@ controls_done:
         if (!post(0xff, 0, 0, 1))
             return 0;
         retry_reset = 0;
-        memset(key_note, 0xff, sizeof key_note);
+        memset(key_note, 0xff, sizeof key_note); project_keys = 0;
     }
     uint32_t keys = controls->keys & ~blocked_keys;
     /* EDIT's labelled black keys select OP1..6 / Pitch / Global / Mono / Poly;
@@ -2470,13 +2559,15 @@ controls_done:
     for (unsigned key = 0; key < 27; ++key) {
         unsigned note = groove_key_note(track, key, octave);
         if (key_note[key] != 0xff &&
-            (mode || !(keys & (1U << key)) || key_note[key] != note || key_track[key] != track)) {
-            if (!post((uint8_t)(0x80 + groove_channel(key_track[key])), key_note[key], 0, 3))
+            (mode || !(keys & (1U << key)) ||
+             (key_note[key] != note && !(project_keys & (1U << key))) || key_track[key] != track)) {
+            if (!post((uint8_t)(0x80 + groove_midi_input_channel(key_track[key])), key_note[key], 0, 3))
                 return 0;
             key_note[key] = 0xff;
+            project_keys &= ~(1U << key);
         }
         if (!mode && note < 128 && (keys & (1U << key)) && key_note[key] == 0xff) {
-            if (!post((uint8_t)(0x90 + groove_channel(track)), (uint8_t)note, 100, 3))
+            if (!post((uint8_t)(0x90 + groove_midi_input_channel(track)), (uint8_t)note, 100, 3))
                 return 0;
             key_note[key] = (uint8_t)note;
             key_track[key] = (uint8_t)track;
@@ -2519,9 +2610,12 @@ void groove_screen_control(void)
             notice = "AUDIO OVERLOAD - REDUCE VOICES"; notice_until = now + 2500U;
         } else if (health.midi_dropped != health_dropped) {
             notice = "MIDI FULL - NOTES RESET"; notice_until = now + 2500U;
+        } else if (groove_midi_dropped() != health_output) {
+            notice = "MIDI OUT FULL - NOTES RESET"; notice_until = now + 2500U;
         } else if (adapted > health_adapted) {
             notice = "CPU GUARD - VOICES ADAPTED"; notice_until = now + 2500U;
         }
+        health_output = groove_midi_dropped();
         health_adapted = adapted;
         health_dma = dma.overruns;
         health_at = now; health_underruns = health.underruns; health_dropped = health.midi_dropped;
@@ -2681,6 +2775,7 @@ unsigned groove_screen_web_mask(void)
     }
     if ((page == OVERVIEW || (page == STEPS && !seq_page)) && groove_clock_mode()) mask &= ~8U;
     if (page == STEPS && seq_page == 4 && groove_clock_mode()) mask &= ~2U;
+    if (page == EFFECTS && effects_page == 2 && groove_clock_mode()) mask &= ~4U;
     if (page == RHYTHM) mask &= 7U; /* Fixed 1/16 quantization is a readout. */
     return mask;
 }
@@ -2747,7 +2842,7 @@ const void *groove_screen_web_targets(void)
             web_target(188, 33, 40, 17, 6, 0, track, "PARAMETER PAGE", tone_pages[track][tone_slot()] + 1, NULL);
     } else if (page == EFFECTS) {
         for (unsigned col = 0; col < 4; ++col) web_alias(6, 86 + col * 22, 204, 20, col);
-        web_target(6, 59, 228, 18, 6, 6, track, "FX PAGE", effects_page, effects_page ? "SHARED" : "TRACK");
+        web_target(6, 59, 228, 18, 6, 6, track, "FX PAGE", effects_page, effects_page == 2 ? "DELAY" : effects_page ? "SHARED" : "TRACK");
     } else if (page == MIX) {
         for (unsigned i = 0; i < 16; ++i) {
             struct groove_view row; groove_get_view(i & 7U, cursor, &row);

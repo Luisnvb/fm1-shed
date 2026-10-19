@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 (() => {
   'use strict';
-  const SLOTS=8,DISK_SLOTS=16,CAPACITY=462848,REGION=466944,HEADER=512,RATE=32000,CHUNK_FRAMES=320,CHUNK_BYTES=228,MAX_FILE=32*1024*1024;
+  const SLOTS=8,DISK_SLOTS=16,CAPACITY=446464,REGION=466944,HEADER=512,RATE=32000,CHUNK_FRAMES=320,CHUNK_BYTES=228,MAX_FILE=32*1024*1024;
   const MAX_FRAMES=Math.floor((REGION-HEADER)/CHUNK_BYTES)*CHUNK_FRAMES;
   const check=(ok,message)=>{if(!ok)throw Error(message);};
   const crcZero=new Uint8Array(8);

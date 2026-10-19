@@ -26,7 +26,10 @@ FM1_DSP_CODE unsigned fm1_master_gain(void); /* Q30, nominal +6 dB = INT32_MAX. 
 /* Shared reverb and delay. Configure while rendering is paused. Render
  * filters the send buses in place and adds returns to the dry buses;
  * all four buffers must be disjoint. No allocation during rendering. */
-void fm1_fx_configure(const uint8_t values[4]);
+/* 2.04 seconds at 44.1 kHz / 8. A bounded wrap saves 20 KiB versus
+ * rounding two histories up to 16384 entries. No division in rendering. */
+enum { FM1_FX_DELAY_SAMPLES = 11264 };
+void fm1_fx_configure(const uint8_t values[4], unsigned delay_ticks);
 FM1_DSP_CODE void fm1_fx_clear(void);
 FM1_DSP_CODE unsigned fm1_fx_active(void);
 FM1_DSP_CODE void fm1_fx_render(int32_t *left, int32_t *right, int32_t *rev, int32_t *dly);

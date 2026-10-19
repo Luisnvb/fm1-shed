@@ -17,7 +17,7 @@ static unsigned observed;
 
 static void capture_tuning(struct groove_tuning t[GROOVE_TRACKS])
 {
-    if (!groove_tuning_capture || groove_tuning_capture(t))
+    if (!groove_tuning_capture || groove_arrangement_tuning_capture(t))
         memset(t, 0, sizeof(struct groove_tuning) * GROOVE_TRACKS);
 }
 enum { RECORD_QUEUE = 128 };
@@ -59,7 +59,7 @@ uint32_t groove_edit_revision(void) { return edit_revision; }
 void groove_project_clean(void)
 {
     struct groove_project *p = groove_project_scratch();
-    if (!groove_project_capture(p)) {
+    if (!groove_arrangement_capture(p)) {
         clean_hash = project_hash(p);
         dirty = 0;
         hash_pending = 0;
@@ -79,13 +79,30 @@ void groove_edit_init(void)
     for (unsigned i = 0; i < GROOVE_TRACKS; ++i)
         queue.activity[i] = 0;
 }
+void groove_edit_forget_history(void) { undo_ready = 0; }
+static void record_keys_reset(unsigned track)
+{
+    memset(held[track], 0, sizeof held[track]);
+    memset(take[track], 0, sizeof take[track]);
+    take_step[track] = 255;
+    cursor[track] %= groove_sequence_length(track);
+}
+void groove_edit_track_reset(unsigned track)
+{
+    if (track >= GROOVE_TRACKS) return;
+    /* Called under the render gate: retiring a key's audio ownership also
+     * retires its pending recording events, without disturbing other tracks. */
+    for (unsigned r = queue.read; r != queue.write; r = (r + 1U) & (RECORD_QUEUE - 1U))
+        if (queue.event[r].track == track) queue.event[r].track = 255;
+    record_keys_reset(track);
+}
 void groove_edit_checkpoint(unsigned operation)
 {
     if (undo_busy || recording)
         return;
     unsigned now = fm1_millis();
     if (!undo_ready || operation != undo_tag || now - undo_time > 400U) {
-        if (groove_project_capture(&undo))
+        if (groove_arrangement_capture(&undo))
             return;
         capture_tuning(undo_tuning);
         undo_ready = 1;
@@ -93,12 +110,12 @@ void groove_edit_checkpoint(unsigned operation)
     }
     undo_time = now;
 }
-int groove_edit_undo(void)
+__attribute__((cold, minsize)) int groove_edit_undo(void)
 {
     if (!undo_ready || recording)
         return -1;
     struct groove_project *p = groove_project_scratch();
-    int r = groove_project_capture(p);
+    int r = groove_arrangement_capture(p);
     if (r)
         return r;
     struct groove_tuning current_tuning[GROOVE_TRACKS];
@@ -110,7 +127,7 @@ int groove_edit_undo(void)
         /* Both snapshots came from the validated live state. Applying tables
          * cannot fail, and happens only after project allocation succeeds. */
         if (groove_tuning_apply)
-            groove_tuning_apply(undo_tuning);
+            groove_arrangement_tuning_apply(undo_tuning);
         memcpy(undo_tuning, current_tuning, sizeof undo_tuning);
         undo = *p;
         groove_sequence_keep_transport(1);
@@ -185,12 +202,14 @@ FM1_DSP_CODE void groove_record_midi(const uint8_t *m, size_t n)
     if (track >= 8 || groove_channel(track) != channel)
         return;
     unsigned type = m[0] & 0xf0U;
-    if (n != 3 || (type != 0x90 && type != 0x80) || m[1] > 127 || m[2] > 127)
+    unsigned reset = (n == 3 && type == 0xb0 && (m[1] == 120 || m[1] == 123) && m[2] < 128) ||
+        (n == 2 && type == 0xc0 && m[1] < 128 && groove_source_type(track) == GROOVE_DX7);
+    if (!reset && (n != 3 || (type != 0x90 && type != 0x80) || m[1] > 127 || m[2] > 127))
         return;
-    ++queue.activity[track];
-    if (!recording)
+    if (!reset) ++queue.activity[track];
+    if (!recording || groove_track_role(track) != GROOVE_TRACK_NORMAL)
         return;
-    unsigned position = groove_sequence_record_position(track);
+    unsigned position = reset ? 255 : groove_sequence_record_position(track);
     if (position == 254)
         return;
     unsigned w = queue.write, next = (w + 1U) & (RECORD_QUEUE - 1U);
@@ -199,7 +218,8 @@ FM1_DSP_CODE void groove_record_midi(const uint8_t *m, size_t n)
         return;
     }
     queue.event[w].track = (uint8_t)track;
-    queue.event[w].note = m[1];
+    /* Preserve ordering with notes already queued by the audio callback. */
+    queue.event[w].note = reset ? 255 : m[1];
     queue.event[w].velocity = type == 0x90 ? m[2] : 0;
     queue.event[w].step = (uint8_t)position;
     queue.event[w].alt = (uint8_t)groove_alt_held(track);
@@ -231,8 +251,12 @@ void groove_edit_poll(void)
         unsigned t = queue.event[r].track, note = queue.event[r].note,
                  velocity = queue.event[r].velocity, step = queue.event[r].step, alt = queue.event[r].alt;
         queue.read = (r + 1U) & (RECORD_QUEUE - 1U);
-        if (!recording)
+        if (!recording || t >= GROOVE_TRACKS || groove_track_role(t) != GROOVE_TRACK_NORMAL)
             continue;
+        if (note == 255) { record_keys_reset(t); continue; }
+        unsigned pads = groove_pad_count(t);
+        /* Unmapped drum notes must not hold or advance the recording cursor. */
+        if (pads && groove_pad_index(t, note) < 0) continue;
         unsigned word = note >> 5;
         uint32_t bit = 1U << (note & 31U), was_held = held[t][word] & bit;
         if (velocity)
@@ -242,34 +266,35 @@ void groove_edit_poll(void)
         unsigned stopped = step == 255;
         if (stopped)
             step = cursor[t];
-        if (groove_pad_count(t)) {
+        if (pads) {
             if (velocity)
                 groove_sequence_edit(t, step, note, velocity);
-            continue;
-        }
-        if (take_step[t] != step) {
-            memset(take[t], 0, sizeof take[t]);
-            take_step[t] = (uint8_t)step;
-        }
-        if (velocity)
-            take[t][word] |= bit;
-        uint8_t notes[8];
-        unsigned count = 0;
-        uint32_t active = held[t][0] | held[t][1] | held[t][2] | held[t][3];
-        /* Keep ascending MIDI order; a ninth note is enough to reject the chord. */
-        for (unsigned k = 0; k < 4 && count <= 8; ++k) {
-            for (uint32_t bits = take[t][k]; bits; bits &= bits - 1U) {
-                if (count == 8) {
-                    ++count;
-                    break;
-                }
-                notes[count++] = (uint8_t)(k * 32U + (unsigned)__builtin_ctz(bits));
+        } else {
+            if (take_step[t] != step) {
+                memset(take[t], 0, sizeof take[t]);
+                take_step[t] = (uint8_t)step;
             }
+            if (velocity)
+                take[t][word] |= bit;
+            uint8_t notes[8];
+            unsigned count = 0;
+            /* Keep ascending MIDI order; a ninth note is enough to reject the chord. */
+            for (unsigned k = 0; k < 4 && count <= 8; ++k) {
+                for (uint32_t bits = take[t][k]; bits; bits &= bits - 1U) {
+                    if (count == 8) {
+                        ++count;
+                        break;
+                    }
+                    notes[count++] = (uint8_t)(k * 32U + (unsigned)__builtin_ctz(bits));
+                }
+            }
+            if (velocity && (count > 8 || groove_sequence_chord(t, step, notes, count, velocity)))
+                edit_error = 2;
+            else if (velocity)
+                groove_sequence_alt(t, step, alt);
         }
-        if (velocity && (count > 8 || groove_sequence_chord(t, step, notes, count, velocity)))
-            edit_error = 2;
-        else if (velocity)
-            groove_sequence_alt(t, step, alt);
+        /* Chords and pad groups both advance once, on the final key release. */
+        uint32_t active = held[t][0] | held[t][1] | held[t][2] | held[t][3];
         if (stopped && was_held && !active && !velocity) {
             cursor[t] = (uint8_t)((cursor[t] + 1U) % groove_sequence_length(t));
             take_step[t] = 255;
@@ -279,19 +304,20 @@ void groove_edit_poll(void)
     if (hash_pending && fm1_millis() - check_time >= 500U && !recording) {
         struct groove_project *p = groove_project_scratch();
         check_time = fm1_millis();
-        if (!groove_project_capture(p)) {
+        if (!groove_arrangement_capture(p)) {
             dirty = project_hash(p) != clean_hash;
             hash_pending = 0;
         }
     }
 }
 unsigned groove_edit_clipboard_count(void) { return clipboard.ready ? clipboard.count : 0; }
-int groove_edit_copy(unsigned track, unsigned step, unsigned scope)
+__attribute__((cold, minsize)) int groove_edit_copy(unsigned track, unsigned step, unsigned scope)
 {
+    if (groove_track_role(track) != GROOVE_TRACK_NORMAL) return -1;
     if (track >= 8 || step >= 64 || scope > 2)
         return -1;
     struct groove_project *p = groove_project_scratch();
-    int r = groove_project_capture(p);
+    int r = groove_arrangement_capture(p);
     if (r)
         return r;
     unsigned first = scope == 2 ? 0 : scope == 1 ? step & ~15U : step;
@@ -312,8 +338,9 @@ int groove_edit_copy(unsigned track, unsigned step, unsigned scope)
     }
     return 0;
 }
-int groove_edit_paste(unsigned track, unsigned step, unsigned scope)
+__attribute__((cold, minsize)) int groove_edit_paste(unsigned track, unsigned step, unsigned scope)
 {
+    if (groove_track_role(track) != GROOVE_TRACK_NORMAL) return -1;
     if (track >= 8 || step >= 64 || scope > 2 || !clipboard.ready)
         return -1;
     unsigned first = scope == 2   ? 0
@@ -328,7 +355,7 @@ int groove_edit_paste(unsigned track, unsigned step, unsigned scope)
                        (clipboard.type == GROOVE_808 || clipboard.type == GROOVE_SAMPLE)))
         return -1;
     struct groove_project *p = groove_project_scratch();
-    int r = groove_project_capture(p);
+    int r = groove_arrangement_capture(p);
     if (r)
         return r;
     if (scope == 2)
@@ -409,8 +436,9 @@ int groove_edit_paste(unsigned track, unsigned step, unsigned scope)
     }
     return r;
 }
-int groove_edit_clear(unsigned track, unsigned step, unsigned scope)
+__attribute__((cold, minsize)) int groove_edit_clear(unsigned track, unsigned step, unsigned scope)
 {
+    if (groove_track_role(track) != GROOVE_TRACK_NORMAL) return -1;
     if (track >= 8 || step >= 64 || scope > 2)
         return -1;
     unsigned first = scope == 2   ? 0
@@ -433,8 +461,9 @@ int groove_edit_clear(unsigned track, unsigned step, unsigned scope)
     groove_sequence_options_set(&o);
     return 0;
 }
-int groove_edit_repeat(unsigned track, unsigned steps)
+__attribute__((cold, minsize)) int groove_edit_repeat(unsigned track, unsigned steps)
 {
+    if (groove_track_role(track) != GROOVE_TRACK_NORMAL) return -1;
     if (track >= 8 || steps < 16 || steps > 64 || (steps & 15U))
         return -1;
     unsigned old = groove_sequence_length(track);
@@ -471,7 +500,7 @@ int groove_edit_repeat(unsigned track, unsigned steps)
     undo_busy = busy;
     return 0;
 }
-int groove_timbre_export(unsigned track, uint8_t *data, unsigned capacity)
+__attribute__((cold, minsize)) int groove_timbre_export(unsigned track, uint8_t *data, unsigned capacity)
 {
     if (track >= 8 || !data || capacity < sizeof(struct groove_preset))
         return -1;
@@ -481,12 +510,12 @@ int groove_timbre_export(unsigned track, uint8_t *data, unsigned capacity)
         memcpy(data, &p->preset[track], sizeof p->preset[track]);
     return r;
 }
-int groove_timbre_import(unsigned track, const uint8_t *data, unsigned bytes)
+__attribute__((cold, minsize)) int groove_timbre_import(unsigned track, const uint8_t *data, unsigned bytes)
 {
     if (track >= 8 || !data || bytes != sizeof(struct groove_preset))
         return -1;
     struct groove_project *p = groove_project_scratch();
-    int r = groove_project_capture(p);
+    int r = groove_arrangement_capture(p);
     if (r)
         return r;
     struct groove_preset preset;

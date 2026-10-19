@@ -6,6 +6,11 @@ static struct groove_step pattern[GROOVE_TRACKS][GROOVE_STEPS];
 static uint8_t lengths[GROOVE_TRACKS];
 static uint64_t active[GROOVE_TRACKS], drum_active[GROOVE_TRACKS][GROOVE_PADS];
 static unsigned tempo = 120, clock_mode;
+static struct {
+    uint32_t last;
+    uint16_t interval[4];
+    uint8_t armed, count, next;
+} tap_tempo; /* Control-owned; never consulted by the audio owners. */
 static struct groove_sequence_options options;
 static struct clock_state {
     uint32_t phase, age, intervals, random;
@@ -117,6 +122,8 @@ static __attribute__((noinline, minsize)) void masks(unsigned track)
 static FM1_DSP_CODE void release_track(struct clock_state *c, unsigned i)
 {
     unsigned track = i;
+    for (unsigned d = 0; d < groove_pad_count(track); ++d)
+        groove_note(track, groove_pad_note(track, d), 0, 1);
     for (unsigned n = 0; n < 8; ++n)
         if (c->held[i][n] != 255) {
             groove_note(track, c->held[i][n], 0, 1);
@@ -174,6 +181,7 @@ static FM1_DSP_CODE void sequence_event(void)
             c->length[i] = lengths[track];
         c->current[i] = (uint8_t)s;
         c->next[i] = (uint8_t)((s + 1U) % c->length[i]);
+        if (groove_track_role(track) != GROOVE_TRACK_NORMAL) continue;
         const struct groove_step *v = &pattern[track][s];
         unsigned pads = groove_pad_count(track);
         unsigned probability = pads ? v->note >> 4 : (v->drums >> 9) & 7U;
@@ -194,6 +202,7 @@ static FM1_DSP_CODE void sequence_event(void)
                 if (v->drums & (1U << d))
                     groove_note(track, groove_pad_note(track, d), v->velocity ? v->velocity : 100,
                                 1);
+            c->gate[i] = clock_mode == GROOVE_CLOCK_MIDI ? (step_pulses(c) + 1U) / 2U : step_period(c) / 2U;
             continue;
         }
         unsigned chord = v->drums & 31U, count = chord ? options.chord[chord - 1][0] : 1;
@@ -243,6 +252,7 @@ __attribute__((cold, minsize)) void groove_sequence_init(void)
     memset(&sequence_clock, 0, sizeof sequence_clock);
     memset(lengths, 64, sizeof lengths);
     tempo = 120;
+    memset(&tap_tempo, 0, sizeof tap_tempo);
     groove_sequence_defaults(&options);
     sequence_clock.first = 1;
     sequence_clock.random = 0x6d2b79f5U;
@@ -253,7 +263,7 @@ __attribute__((cold, minsize)) void groove_sequence_init(void)
         for (unsigned s = 0; s < 64; ++s)
             pattern[t][s].note = groove_pad_count(t) ? 0 : 60;
 }
-unsigned groove_clock_mode(void)
+FM1_DSP_CODE unsigned groove_clock_mode(void)
 {
     return clock_mode;
 }
@@ -262,6 +272,8 @@ __attribute__((cold, minsize)) void groove_clock_set(unsigned mode)
     if (mode > GROOVE_CLOCK_MIDI || mode == clock_mode)
         return;
     fm1_web_pause();
+    groove_midi_transport(0,0xfc);
+    groove_midi_clock_reset();
     release(&sequence_clock);
     groove_arp_reset(1);
     memset(&sequence_clock, 0, sizeof sequence_clock);
@@ -272,6 +284,7 @@ __attribute__((cold, minsize)) void groove_clock_set(unsigned mode)
         sequence_clock.length[i] = lengths[i];
     clock_publish();
     clock_mode = mode;
+    tap_tempo.armed = 0;
     fm1_web_resume();
 }
 FM1_DSP_CODE void groove_sequence_position(unsigned position)
@@ -293,6 +306,7 @@ FM1_DSP_CODE void groove_sequence_position(unsigned position)
 }
 FM1_DSP_CODE void groove_sequence_transport(uint8_t status)
 {
+    groove_midi_transport(0, status);
     struct clock_state *c = &sequence_clock;
     if (status == 0xfa || status == 0xff) {
         release(c);
@@ -362,6 +376,7 @@ FM1_DSP_CODE void groove_sequence_clock(void)
 }
 FM1_DSP_CODE void groove_sequence_render(void)
 {
+    groove_midi_clock(0, tempo);
     struct clock_state *c = &sequence_clock;
     if (clock_mode == GROOVE_CLOCK_MIDI) {
         if (c->age < FM1_SAMPLE_RATE * 2U)
@@ -444,6 +459,7 @@ __attribute__((cold, minsize)) void groove_sequence_keep_transport(unsigned rest
 }
 __attribute__((cold, minsize)) void groove_sequence_edit(unsigned track, unsigned step, unsigned note, unsigned velocity)
 {
+    if (groove_track_role(track) != GROOVE_TRACK_NORMAL) return;
     if (track >= 8 || step >= 64 || note > 127 || velocity > 127)
         return;
     struct groove_step *v = &pattern[track][step];
@@ -479,6 +495,7 @@ unsigned groove_sequence_length(unsigned track)
 }
 __attribute__((cold, minsize)) void groove_sequence_length_set(unsigned track, unsigned steps)
 {
+    if (groove_track_role(track) != GROOVE_TRACK_NORMAL) return;
     if (track >= 8 || !steps || steps > 64 || (steps & 15U) || lengths[track] == steps)
         return;
     groove_edit_checkpoint(0x20000U + track);
@@ -507,6 +524,40 @@ __attribute__((cold, minsize)) void groove_tempo_edit(int delta)
     tempo = (unsigned)next;
     fm1_web_resume();
     groove_project_touch();
+}
+unsigned groove_tempo_saved(void) { return tempo; }
+unsigned groove_tempo_current(void)
+{
+    return clock_mode == GROOVE_CLOCK_MIDI ? (unsigned)(published.word >> 16) : tempo;
+}
+__attribute__((cold, minsize)) int groove_tempo_tap(uint32_t now)
+{
+    if (clock_mode == GROOVE_CLOCK_MIDI) { tap_tempo.armed = 0; return -1; }
+    unsigned dt = now - tap_tempo.last;
+    if (!tap_tempo.armed || dt > 2400U) {
+        tap_tempo.last = now; tap_tempo.armed = 1;
+        tap_tempo.count = tap_tempo.next = 0;
+        return 0;
+    }
+    if (dt < 160U) return 0; /* Bounce cannot move the accepted timestamp. */
+    tap_tempo.last = now;
+    /* A deliberate tempo change starts a new average, rather than dragging
+     * several old beats into it. Normal human timing uses up to four beats. */
+    if (tap_tempo.count) {
+        unsigned previous = tap_tempo.interval[(tap_tempo.next + 3U) & 3U];
+        if (dt * 4U < previous * 3U || dt * 3U > previous * 4U)
+            tap_tempo.count = tap_tempo.next = 0;
+    }
+    tap_tempo.interval[tap_tempo.next] = (uint16_t)dt;
+    tap_tempo.next = (tap_tempo.next + 1U) & 3U;
+    if (tap_tempo.count < 4) ++tap_tempo.count;
+    unsigned sum = 0;
+    for (unsigned i = 0; i < tap_tempo.count; ++i) sum += tap_tempo.interval[i];
+    /* Allow human timing variation around 30/300 BPM. The editor clamps
+     * the result; a slightly fast tap must not be mistaken for bounce. */
+    unsigned bpm = (60000U * tap_tempo.count + sum / 2U) / sum;
+    groove_tempo_edit((int)bpm - (int)tempo);
+    return (int)tempo;
 }
 void groove_sequence_view(unsigned track, unsigned step, struct groove_view *v)
 {
@@ -545,13 +596,25 @@ __attribute__((cold, minsize)) void groove_sequence_copy(struct groove_project *
 }
 __attribute__((cold, minsize)) void groove_sequence_restore(const struct groove_project *p)
 {
+    unsigned session = 0;
+    for (unsigned t = 0; t < GROOVE_TRACKS; ++t) session |= groove_track_role(t) == GROOVE_TRACK_PLAY;
+    struct clock_state saved = sequence_clock;
     groove_sequence_init();
+    if (session) {
+        sequence_clock = saved;
+        for (unsigned t = 0; t < GROOVE_TRACKS; ++t) {
+            struct clock_state *c = &sequence_clock; unsigned i = t;
+            memset(c->held[i], 255, sizeof c->held[i]); c->gate[i] = c->tied[i] = 0;
+        }
+    }
     memcpy(pattern, p->step, sizeof pattern);
     options = p->sequence;
     tempo = p->tempo;
     for (unsigned t = 0; t < 8; ++t) {
         lengths[t] = p->preset[t].sequence_pages ? p->preset[t].sequence_pages * 16U : 64;
         sequence_clock.length[t] = lengths[t];
+        sequence_clock.next[t] %= lengths[t];
+        sequence_clock.current[t] %= lengths[t];
         groove_sequence_source_changed(t);
     }
     clock_publish();
@@ -564,6 +627,7 @@ void groove_sequence_read(unsigned track, unsigned first, struct groove_step *ce
 __attribute__((cold, minsize)) void groove_sequence_replace(unsigned track, unsigned first, const struct groove_step *cells,
                              unsigned count)
 {
+    if (groove_track_role(track) != GROOVE_TRACK_NORMAL) return;
     if (track >= 8 || first > 64 || count > 64 - first)
         return;
     fm1_web_pause();
@@ -611,6 +675,7 @@ unsigned groove_step_setting(unsigned track, unsigned step, unsigned setting)
 }
 __attribute__((cold, minsize)) int groove_step_setting_edit(unsigned track, unsigned step, unsigned setting, int delta)
 {
+    if (groove_track_role(track) != GROOVE_TRACK_NORMAL) return -1;
     if (track >= 8 || step >= 64 || setting > 6 || !delta)
         return -1;
     unsigned pads = groove_pad_count(track), old = groove_step_setting(track, step, setting);
@@ -704,6 +769,7 @@ __attribute__((cold, minsize)) void groove_sequence_setting_edit(unsigned settin
 /* Live recording: the step's alt flag follows alt hold at note-on. */
 __attribute__((cold, minsize)) void groove_sequence_alt(unsigned track, unsigned step, unsigned alt)
 {
+    if (groove_track_role(track) != GROOVE_TRACK_NORMAL) return;
     if (track >= 8 || step >= 64 || groove_pad_count(track)) return;
     fm1_web_pause();
     pattern[track][step].drums = (uint16_t)((pattern[track][step].drums & ~GROOVE_STEP_ALT) | (alt ? GROOVE_STEP_ALT : 0U));
@@ -712,6 +778,7 @@ __attribute__((cold, minsize)) void groove_sequence_alt(unsigned track, unsigned
 __attribute__((cold, minsize)) int groove_sequence_chord(unsigned track, unsigned step, const uint8_t *notes, unsigned count,
                           unsigned velocity)
 {
+    if (groove_track_role(track) != GROOVE_TRACK_NORMAL) return -1;
     if (track >= 8 || step >= 64 || !count || count > 8 || velocity > 127)
         return -1;
     uint8_t chord[8] = {0};

@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "fm1_block.h"
-#define FM1_SYNTH_API 7U
+#define FM1_SYNTH_API 8U
 #define FM1_DSP_ABI 3U
 #ifdef FM1_HOST_TEST
 #define FM1_DSP_CODE

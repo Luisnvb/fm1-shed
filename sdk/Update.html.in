@@ -42,7 +42,7 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
 #tab-manual{margin:0}.manual-heading h2{font-size:25px}.manual-index,.manual-chapter{background:#192329;border-color:var(--line);border-radius:10px}.manual-chapter p,.manual-chapter li{color:#b1c1c8}.manual-table th{background:#23363b;color:#c1e8d9}.manual-note{background:#203a31}.save-dialog{background:#19282e;border-color:#6a9e88;box-shadow:0 24px 90px #0007;border-radius:12px}.save-dialog p{color:#afc0c4}.save-dialog::backdrop{background:#071015bf}.about-dialog{width:min(720px,92vw);max-height:82vh;overflow:auto}.about-dialog h2{font-size:21px}.about-dialog summary{cursor:pointer;font-size:12px;color:#b5ccc2}.about-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:#93a6ae}.about-dialog form{text-align:right;margin-top:15px}
 @media(max-width:1099px){.workspace{grid-template-columns:1fr;gap:20px}.preset-home{display:grid;grid-template-columns:1fr 1fr;gap:0 24px;padding:18px}.preset-home-head{grid-column:1;grid-row:1}.preset-picker{grid-column:1;grid-row:2/5}.preset-home .preset-hint{grid-column:1;grid-row:5}.preset-home .sim-selectors{grid-column:2;grid-row:1/3;margin:0;padding:0;border:0;align-self:start}.edit-shortcuts{grid-column:2;grid-row:3;margin-top:10px;align-self:start}.editor-more{grid-column:2;grid-row:4/6;align-self:start}.manual-layout{gap:20px}}
 @media(max-width:700px){main{padding:16px}.site-header{gap:9px;margin-bottom:15px}.brand b{font-size:21px}.brand svg{width:27px;height:27px}.site-header h1{font-size:15px}.language-picker select{font-size:11px;max-width:98px}.about-button{font-size:11px;padding:5px}.navigation-row{align-items:stretch;gap:8px}.app-nav{display:flex;gap:0;overflow-x:auto}.app-nav button{font-size:12px;padding:8px 10px}.device-status{font-size:10px;margin-bottom:10px}.device-status span{flex-basis:100%}.preset-home{display:block;padding:16px}.preset-home .preset-main,.preset-navigation,.save-options{grid-column:1/-1}.preset-home .sim-selectors{display:grid;grid-template-columns:1fr 1fr;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}.edit-shortcuts{grid-template-columns:repeat(4,minmax(0,1fr));margin-top:12px;padding:0;border:0}.editor-more .edit-shortcuts{grid-template-columns:repeat(2,minmax(0,1fr))}.edit-shortcuts button{font-size:11px;padding:8px 4px;min-height:38px}.editor-more{margin-top:12px}.sim-toolbar label:not(.output-level){display:none}.sim-health{margin-left:auto}.sim-health span+span{display:inline}.sim-toolbar{gap:7px}.device-scroll{margin:0 -5px;padding:8px 5px 18px}.workspace-extras{grid-template-columns:1fr;gap:10px;margin-top:14px}.sim-details{padding:12px 14px}#tab-library,#tab-update{padding:18px}.manual-chapter{padding:18px}.manual-heading h2{font-size:23px}.field-row{grid-template-columns:1fr;gap:0}}
-@media(max-width:480px){.navigation-row{flex-wrap:wrap}.app-nav{flex-basis:100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));overflow:visible}.app-nav button{padding:8px 2px;font-size:11px}#quick-connect{margin-left:auto;padding:5px 10px;font-size:11px}.site-header h1{display:none}.sim-health{width:auto;margin-left:auto}.sim-toolbar .output-level{margin-left:0}.release-badge{font-size:10px}.sim-toolbar{gap:6px}}
+@media(max-width:480px){.navigation-row{flex-wrap:wrap}.app-nav{flex-basis:100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));overflow:visible}.app-nav button{padding:8px 2px;font-size:11px;white-space:normal;line-height:1.25;min-height:40px}#quick-connect{margin-left:auto;padding:5px 10px;font-size:11px}.site-header h1{display:none}.sim-health{width:auto;margin-left:auto}.sim-toolbar .output-level{margin-left:0}.release-badge{font-size:10px}.sim-toolbar{gap:6px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important}}
 }
 
@@ -54,7 +54,7 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
 <dialog id="sim-lcd-dialog" class="save-dialog lcd-editor" aria-labelledby="sim-lcd-title">
 <h2 id="sim-lcd-title">LCD 参数编辑</h2><h3 id="sim-lcd-label"></h3><div id="sim-lcd-value" class="lcd-value"></div>
 <div class="lcd-adjust"><button id="sim-lcd-minus" aria-label="减少参数">−</button><button id="sim-lcd-plus" aria-label="增加参数">＋</button></div>
-<p>滚轮、＋／−或方向键按最小步长调节，网页试听实时生效。用“保存到设备”写入实机。</p><button id="sim-lcd-close">完成</button></dialog>
+<p>滚轮、＋／−或方向键按最小步长调节，网页试听实时生效。工程参数用“保存到设备”写入；MIDI 路由与时钟来源请在机身设置。</p><button id="sim-lcd-close">完成</button></dialog>
 <dialog id="device-save-dialog" class="save-dialog" aria-labelledby="device-save-title"><h2 id="device-save-title">保存到设备</h2><p id="device-save-source"></p><label>保存位置<select id="device-save-slot" disabled aria-label="保存到哪个设备项目槽"></select></label><p>保存会替换所选槽位，并载入该项目进行校验。完成后重启设备仍可恢复；采样库单独管理。</p><p id="device-save-status" role="status" aria-live="polite"></p><button id="device-save-confirm" class="primary" disabled>保存并校验</button><button id="device-save-cancel">取消</button></dialog>
 <div class="navigation-row"><nav class="app-nav" role="tablist" aria-label="工作台功能"><button id="mode-sim" role="tab" aria-selected="true" aria-controls="tab-sim">演奏与编辑</button><button id="mode-library" role="tab" aria-selected="false" aria-controls="tab-library" tabindex="-1">项目与音色</button><button id="mode-update" role="tab" aria-selected="false" aria-controls="tab-update" tabindex="-1">设备更新</button><button id="mode-manual" role="tab" aria-selected="false" aria-controls="tab-manual" tabindex="-1">使用说明</button></nav><button id="quick-connect">连接设备</button></div>
 <div class="device-status" id="device-sync-status" role="status" aria-live="polite" data-state="preview"><strong id="device-sync-title">网页试听 · 未连接设备</strong><span id="device-sync-detail"></span></div>
@@ -71,7 +71,7 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
 <details class="editor-more"><summary>更多编辑</summary><div class="edit-shortcuts"><button data-sim data-sim-page="0" disabled>总览</button><button data-sim data-sim-page="3" disabled>包络</button><button data-sim data-sim-page="4" disabled>LFO</button><button data-sim data-sim-page="17" disabled>琶音参数</button><button data-sim data-sim-page="2" disabled>完整音色编辑</button><button data-sim data-sim-page="13" disabled>步进细节</button><button data-sim data-sim-page="14" disabled>节奏与录入</button><button data-sim data-sim-page="12" disabled>复制与更多</button><button data-sim data-sim-page="9" disabled>DX7 音色改名</button><button data-sim data-sim-page="7" disabled>连接设置预览</button><button data-sim data-sim-page="16" disabled>用户／内置预设列表</button></div><p id="sim-context" class="sim-help">面板 PRESETS 旋钮：换整套预设。</p></details>
 </aside>
 <div class="performance-stage">
-<div class="sim-toolbar"><button id="sim-start" class="primary" disabled>静音</button><button id="sim-panic" data-sim disabled>紧急停音</button><div class="sim-health" role="status"><span id="sim-engine-state">正在载入</span><span id="sim-audio-state" hidden>静音编辑</span></div><label class="output-level">输出电平 <meter id="sim-output-meter" min="0" max="100" value="0" aria-label="音频输出电平"></meter></label><label>试听音量 <input id="sim-volume" type="range" min="0" max="100" value="35" aria-label="试听音量"></label></div>
+<div class="sim-toolbar"><button id="sim-start" class="primary" disabled>静音</button><button id="sim-tap-tempo" data-sim disabled title="连按设置 BPM">TAP</button><button id="sim-panic" data-sim disabled>紧急停音</button><div class="sim-health" role="status"><span id="sim-engine-state">正在载入</span><span id="sim-audio-state" hidden>静音编辑</span></div><label class="output-level">输出电平 <meter id="sim-output-meter" min="0" max="100" value="0" aria-label="音频输出电平"></meter></label><label>试听音量 <input id="sim-volume" type="range" min="0" max="100" value="35" aria-label="试听音量"></label></div>
 <div class="device-scroll" tabindex="0" aria-label="FM1 面板，窄屏可左右滑动">
 <div id="sim-device" class="sim-device" aria-label="FM1 实机布局">
 <div class="device-brand">FM–1 <span>WORKBENCH</span></div><span class="case-mark">POLYPHONIC SYNTHESIZER</span>
@@ -88,7 +88,7 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
 <div class="workspace-extras">
 
 <details class="sim-details"><summary>八轨状态</summary><div id="sim-tracks" class="track-grid" aria-label="八轨步进状态"></div></details>
-<details class="sim-details"><summary>文件与 MIDI</summary><div class="sim-file-row"><button id="sim-project-export" data-sim disabled>导出项目文件</button><button id="sim-timbre-export" data-sim disabled>导出轨道音色</button><button id="sim-patch-export" data-sim disabled>导出 DX7 音色</button><button id="sim-midi" data-sim disabled>连接 MIDI 输入</button><select id="sim-midi-port" hidden aria-label="仿真 MIDI 输入"></select></div><div class="sim-file-row"><input id="sim-file" type="file" accept=".fm1,.fm1t,.syx" data-sim disabled aria-label="导入仿真项目或音色"><select id="sim-voice" hidden aria-label="选择音色库中的音色"></select><button id="sim-file-apply" data-sim disabled>导入到仿真</button></div><div class="sim-file-row"><button id="sim-clear" data-sim disabled>清空本地仿真存档</button></div><p class="sim-help">导出文件可备份到电脑；浏览器存档与设备项目分别保存。</p><p id="sample-bank-note" class="sim-help" hidden>此预览使用演示采样；项目文件不包含采样音频。</p></details>
+<details class="sim-details"><summary>文件与 MIDI</summary><div class="sim-file-row"><button id="sim-project-export" data-sim disabled>导出项目文件</button><button id="sim-timbre-export" data-sim disabled>导出轨道音色</button><button id="sim-patch-export" data-sim disabled>导出 DX7 音色</button><button id="sim-midi" data-sim disabled>连接 MIDI 输入</button><select id="sim-midi-port" hidden aria-label="仿真 MIDI 输入"></select></div><div class="sim-file-row"><input id="sim-file" type="file" accept=".fm1,.fm1t,.syx" data-sim disabled aria-label="导入仿真项目或音色"><select id="sim-voice" hidden aria-label="选择音色库中的音色"></select><button id="sim-file-apply" data-sim disabled>导入到仿真</button></div><div class="sim-file-row"><label>独立音色库 <select id="sim-library-slot" data-sim disabled></select></label><button id="sim-library-save" data-sim disabled>保存所选文件音色／当前 DX7 轨到此位置</button><button id="sim-library-bank" data-sim disabled>文件替换此组 32 音色</button><button id="sim-library-export" data-sim disabled>导出此组</button></div><div class="sim-file-row"><button id="sim-clear" data-sim disabled>清空本地仿真存档</button></div><p class="sim-help">导出文件可备份到电脑；浏览器存档与设备项目分别保存。</p><p id="sample-bank-note" class="sim-help" hidden>此预览使用演示采样；项目文件不包含采样音频。</p></details>
 </div>
 </section>
 <section id="tab-update" role="tabpanel" aria-labelledby="mode-update" hidden>
@@ -134,12 +134,20 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
 <label>音色文件 <input id="patch-file" type="file" accept=".syx" data-library disabled></label></div>
 <label>文件中的音色 <select id="patch-choice" data-library disabled><option>请先选择 .syx 文件</option></select></label>
 <button id="patch-import" data-library disabled>导入到此轨</button><button id="patch-export" data-library disabled>导出此轨音色</button>
-<small>支持 DX7 单音色与 32 音色库。先将目标轨道设为 DX7；导入后按设备 SAVE 或保存项目，重启后才能保留。</small>
+<small>支持 DX7 单音色及 32 音色库 SysEx，不处理扩展参数。先将目标轨道设为 DX7。导入后，NORMAL 轨请保存项目；PLAY 轨请导出轨道音色或存入 DX7 独立库。</small>
+</details>
+<details class="library-group"><summary>128 个 DX7 独立音色</summary>
+<div class="field-row"><label>音色组 <select id="bank-group" data-library disabled><option value="0">A · 1–32</option><option value="1">B · 33–64</option><option value="2">C · 65–96</option><option value="3">D · 97–128</option></select></label>
+<label>库内位置 <select id="bank-slot" data-library disabled></select></label></div>
+<button id="bank-read" data-library disabled>读取此组</button><button id="bank-export" data-library disabled>导出此组 .syx</button>
+<button id="bank-file-voice" data-library disabled>保存所选文件音色到此位置</button><button id="bank-track-voice" data-library disabled>保存所选 DX7 轨到此位置</button>
+<button id="bank-file-all" data-library disabled>用所选 32 音色文件替换此组</button>
+<small>使用上方的 DX7 文件与轨道选择。写入后自动读回校验。项目保存完整音色，更新音色库不改变已有项目；出厂 Demo 保留原始声音。旧采样若占用库空间，写入会被拒绝。</small>
 </details>
 <details id="sample-section" class="library-group"><summary>8 槽采样库</summary>
-<p>8 槽共享约 20.45 秒，可自由分配。项目与采样分别备份。</p>
+<p>8 槽共享约 19.55 秒，可自由分配。项目与采样分别备份。</p>
 <p class="sim-help">先读取设备采样库，再选槽位和 WAV。写入会替换整库，影响所有项目。</p>
-<details class="technical-details"><summary>音频格式与容量</summary><p class="quiet-note">WAV：PCM 8/16/24/32 位或 32 位浮点，单声道或立体声，8–192 kHz；原文件不超过 32 MiB、120 秒。8 槽共享约 20.45 秒，可自由分配；每段按 10 毫秒向上取整，替换时可复用当前槽空间。</p></details>
+<details class="technical-details"><summary>音频格式与容量</summary><p class="quiet-note">WAV：PCM 8/16/24/32 位或 32 位浮点，单声道或立体声，8–192 kHz；原文件不超过 32 MiB、120 秒。8 槽共享约 19.55 秒，可自由分配；每段按 10 毫秒向上取整，替换时可复用当前槽空间。</p></details>
 <p id="sample-space"></p>
 <p id="sample-limit"></p>
 <button id="sample-read" data-sample disabled>读取设备采样库</button><button id="sample-factory" data-sample disabled>载入内置采样库</button>
@@ -192,11 +200,12 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
 <p>GLO 短按（小于 0.6 秒）进入或退出混音；按住 0.6 秒可临时查看混音，松开回原页。GLO、EDIT、SEQ、ARP 的长按过程中，屏幕顶部显示进度条。</p>
 <h4>组合键</h4><p>HOME＋PLAY 紧急停音回起点；HOME＋SAVE 撤销／重做；SEQ＋EDIT 打开更多菜单；EDIT＋REC 改 DX7 音色名。都可以从长按 SEQ 的菜单完成对应操作。网页需要锁住按键时可 Shift 点击或右击，再点释放；日常操作无需使用。</p></article>
 <article id="manual-sequence" class="manual-chapter" tabindex="-1"><h3>03 · 步进与录入</h3>
-<h4>16 个白键，一页 16 步</h4><p>SEQ 基础页白键开关当前页的步；K3 选音高或鼓声部。PRESETS 在各参数页统一选步，SELECT 选轨，OCT−／OCT+ 每次换 16 步。ALGORITHM 翻底部五页：BASIC、STEP DETAILS、RHYTHM/REC、LOCKS、SYNC / LOOP。RHYTHM/REC 的 K4 选本轨 16／32／48／64 步，各轨独立循环。</p><p>播放中修改长度会显示 <strong>NEXT</strong>，到本轨下一轮起点生效。缩短不会删除后面的音符，再加长即可恢复。屏幕 <strong>FOLLOW</strong> 表示跟随播放翻页；手动编辑后显示 <strong>EDIT</strong> 并固定页面，再按 SEQ 返回基础页并恢复跟随。</p>
+<h4>16 个白键，一页 16 步</h4><p>SEQ 基础页白键开关当前页的步；K3 选音高或鼓声部。PRESETS 在各参数页统一选步，SELECT 选轨，OCT−／OCT+ 每次换 16 步。ALGORITHM 翻底部八页：BASIC、STEP DETAILS、RHYTHM/REC、LOCKS、SYNC / LOOP、MIDI TRACK、MIDI ROUTING、TRACK ROLE。RHYTHM/REC 的 K4 选本轨 16／32／48／64 步，各轨独立循环。</p><p>播放中修改长度会显示 <strong>NEXT</strong>，到本轨下一轮起点生效。缩短不会删除后面的音符，再加长即可恢复。屏幕 <strong>FOLLOW</strong> 表示跟随播放翻页；手动编辑后显示 <strong>EDIT</strong> 并固定页面，再按 SEQ 返回基础页并恢复跟随。</p>
 <p>SEQ 基础页：旋律轨 K2 选步，K3 改已有音符；空步只设待输入音高，按白键写入。鼓轨 K3 选声部，不移动鼓点。K1 调轨道音量，K4 调速度；外部 MIDI 时钟下速度由外部设备控制。</p>
-<p>SEQ 的 SYNC / LOOP 页：K1 选 INT／MIDI，K2 调内部 BPM，K3 调循环长度。切换时钟会停止播放；MIDI 模式需外部 Start／Continue 和 Clock，等待时屏幕提示 WAIT MIDI CLOCK。外部 BPM 只读，蓝牙页的时钟设置仍可使用。</p><p>录入标记：停止时按 REC 显示 STEP，弹琴逐步写入；播放时显示 REC，按时间录入；启用预备拍后显示 CNT 4→1，下一小节才开始记录。绿色短线表示播放步，白色框表示编辑步；PRESETS 手动选步会结束录入，再按 REC 继续。</p>
+<p>SEQ 的 SYNC / LOOP 页：K1 选 INT／MIDI，K2 调内部 BPM，K3 调循环长度。切换时钟会停止播放；MIDI 模式需外部 Start／Continue 和 Clock，等待时屏幕提示 WAIT MIDI CLOCK。外部 BPM 只读，蓝牙页的时钟设置仍可使用。</p>
+<p>SEQ 的 MIDI TRACK 页：K1 选 SEQ／ARP 的 LOCAL／BOTH／MIDI 输出，K2 选输出通道，K3 选端口，K4 开关 KEY OUT。MIDI ROUTING 页：K1 为 LOCAL，K2 为 CLK OUT，K3 选 THRU IN，K4 选 THRU OUT。SYNC 页 K4 选时钟来源。这些偏好独立于工程；网页仅预览，不向实际 MIDI 端口外发，实机请通过机身设置。</p><p>录入标记：停止时按 REC 显示 STEP，弹琴逐步写入；播放时显示 REC，按时间录入；启用预备拍后显示 CNT 4→1，下一小节才开始记录。绿色短线表示播放步，白色框表示编辑步；PRESETS 手动选步会结束录入，再按 REC 继续。</p>
 <h4>琶音：速度、方向、Swing 与 Hold</h4><p>短按 ARP 开启后按住音符；长按 ARP 打开参数。ALGORITHM 翻两页：第一页 K1 为 1/4、1/8、1/16、1/32 分频，K2 方向，K3 为 1–4 个八度，K4 为 25%–100% 门长；第二页 K1 为 0%–50% Swing，K2 开关 Hold。Hold 保持松手后的和弦，全部松手后弹新和弦即可替换；关闭 Hold、停止或紧急停音会释放锁住的音符。SELECT 选轨，各轨参数独立。HOME／SEQ 基础页 K4 调 BPM；外部时钟需 Start／Continue 和 Clock，Swing 按 24 PPQN 的精度变化。</p><p>808／SAMPLER 支持分频、方向、Swing 和 Hold；音域与门长显示“--”，不移调鼓声部。ARP 开关与六项参数随项目保存，按住或 Hold 锁住的音符不保存。</p>
-<h4>两种录入方式</h4><ul><li><strong>停止时按 REC：</strong>旋律音符组成同一步和弦，全部松开后前进；鼓声部可叠加到同一步。</li><li><strong>播放时按 REC：</strong>面板或 MIDI 演奏按最近的十六分音符量化写入，并保留力度。再次按 REC 结束录入。</li></ul>
+<p>TRACK ROLE（8/8）：K1 选 NORMAL、PLAY 或 OFF，K2 设输入通道。NORMAL 参与音序与录入；PLAY 用于现场演奏，切换工程时保留本轨音色和持续按住的音符；OFF 关闭本轨发声。角色和输入通道独立于工程保存。MUTE／SOLO 沿用原有操作，NORMAL 与 PLAY 各自判断独奏。</p><h4>两种录入方式</h4><p>以下录入仅适用于 NORMAL 轨；PLAY 轨用于现场演奏，不参与录入。</p><ul><li><strong>停止时按 REC：</strong>旋律音符、DRUM 808 和 SAMPLER 都在全部按键松开后前进一步；重叠按下的声音录入同一步。</li><li><strong>播放时按 REC：</strong>面板或 MIDI 演奏按最近的十六分音符量化写入，并保留力度。再次按 REC 结束录入。</li></ul>
 <h4>细节、节奏与复制</h4><p>长按 SEQ 约 0.6 秒打开更多菜单。SELECT 选 COPY STEP 或 COPY PAGE，按 SAVE 复制；菜单自动选中对应 PASTE。用 PRESETS 或 K2 选目标步，OCT−／OCT+ 换目标页，再按一次 SAVE 粘贴。顶部显示当前轨、步、页及剪贴板类型；整轨粘贴、清空与重复仍需第二次 SAVE 确认。</p><p>在 SEQ 转 ALGORITHM 到 STEP DETAILS，K1–K4 调力度、门长、概率、和弦；LOCKS 页调连音、参数锁及音符。PRESETS 或白键只选择要编辑的步，SELECT 仍选轨。进入细节或锁参数页会结束 REC 并保留录入，播放不会拉走手动光标。参数锁只作用于一步，下一步恢复；不相关的 MIDI 控制消息不会取消它，支持的 CC 若控制同一参数则覆盖锁定并更新保存值。全项目共享 16 组和弦和 16 个单步参数锁。</p><p>SEQ 的 RHYTHM/REC 页：K1 Swing、K2 节拍器（关闭／录音／常开）、K3 一小节预备拍、K4 循环长度。量化固定为十六分音符。长按 SEQ 仍保留复制、粘贴和更多操作；UNDO / REDO 在当前内容与上次编辑前状态之间切换；音色与音量到达边界后继续拧不会覆盖撤销记录。</p>
 </article>
 <article id="manual-sound" class="manual-chapter" tabindex="-1"><h3>04 · 六种音源</h3>
@@ -222,19 +231,19 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
 <p class="manual-note"><strong>工作区 ≠ 已保存项目。</strong>实机未保存的编辑只在内存中，重新开机或载入其他项目会丢失。网页与实机各有自己的存档；“保存到设备”会完成传输、写入槽位和读回校验。</p>
 <h4>预设与保存分开操作</h4><p><strong>直接切换：</strong>在 HOME 总览转 PRESETS 即可切整套预设，屏幕显示当前工程名称；播放中切换会继续播放，停止时切换保持停止。切换直接生效，不提示保存。单轨音色在 EDIT 页用 PRESETS 选择。</p><p><strong>浏览列表：</strong>总览按 HOME 打开预设，K1 向右选 FACTORY（16 个内置工程）、向左选 USER（16 个用户槽）。PRESETS／SELECT 直接载入对应编号，PLAY 载入并播放，SAVE 打开项目保存；白键 1–16 直接选编号并沿用之前的播放状态。空 USER 槽会提示，不替换当前项目。</p><p>切换预设会直接替换当前工作区，包括未保存的修改；想保留修改时，先按 SAVE 保存。官方工程只读，编辑后请存入 USER。</p><p><strong>保存：</strong>SAVE 打开保存页，SELECT／PRESETS 选 USER 槽，K1 选名称字符、K2 改字符；再按 SAVE 写入。覆盖其他已有槽须再按 SAVE 确认，成功后自动回原页面，HOME 取消。当前槽直接更新。标题星号表示未保存。</p>
 <p>顶部状态区区分浏览器试听、设备连接和未写入的网页修改。连接不会自动读取或同步；点常用区“读取设备项目”替换网页工作区，误操作可用 HOME＋SAVE 撤销。保存并读回校验一致后才显示已写入；仅存到浏览器不代表写入设备。实机旋钮修改后，请重新读取。</p><p>项目保存各轨 ARP 开关与参数；采样音频须另备份采样库。</p>
-<h4>把网页作品放入 FM1</h4><ol><li>用 USB 数据线连接 FM1；在网页完成编辑，点顶部“保存到设备”。</li><li>允许浏览器 MIDI／SysEx，选择目标槽位，点击“保存并校验”。已有槽位内容会被替换。</li><li>看到“读回校验通过”再断开设备。重启后可在 USER 列表载入对应槽；不需要另外按实机 SAVE。</li></ol>
+<p>NORMAL 轨的音色修改随项目保存；PLAY 轨的音色修改请导出轨道音色，DX7 也可存入独立库。项目备份不包含独立音色库和采样音频。</p><h4>把网页作品放入 FM1</h4><ol><li>用 USB 数据线连接 FM1；在网页完成编辑，点顶部“保存到设备”。</li><li>允许浏览器 MIDI／SysEx，选择目标槽位，点击“保存并校验”。已有槽位内容会被替换。</li><li>看到“读回校验通过”再断开设备。重启后可在 USER 列表载入对应槽；不需要另外按实机 SAVE。</li></ol>
 <p>“读取设备项目”把当前实机工作区带入仿真；“恢复到工作区”也不会自动覆盖设备槽。网页的 SAVE 写入浏览器本地槽，清理浏览器数据会删除这些存档，重要作品请导出。</p>
 <div class="manual-table"><table><thead><tr><th scope="col">文件</th><th scope="col">包含什么</th></tr></thead><tbody><tr><td>.fm1</td><td>完整八轨项目：音源、参数、轨道音量、循环长度、步进等；不含采样音频。</td></tr><tr><td>.fm1t</td><td>一条轨道的音源类型、音色参数和音量；不携带步进。支持全部六种音源。</td></tr><tr><td>.syx</td><td>DX7 标准音色，支持单音色和 32 音色库。设备目标轨须设为 DX7。</td></tr><tr><td>.fm1s</td><td>完整 8 槽采样库，所有项目共用。使用自定义采样的作品须另备份此文件。</td></tr></tbody></table></div>
 <p>项目库列表读取失败时，载入、保存和导入按钮保持禁用；点击“刷新列表”重试。只有完整读取成功后才开放操作，重试会保留有效的选中槽位。</p></article>
 <article id="manual-sample" class="manual-chapter" tabindex="-1"><h3>07 · 采样库</h3>
-<p>在“项目与音色”的“8 槽采样库”编辑音频。8 槽共用 456 KiB，约 20.45 秒；可自由分配，页面显示剩余容量。先读取设备库，可保留已有采样。</p>
-<p>WAV：PCM 8/16/24/32 位或 32 位浮点，单声道或立体声，8–192 kHz；原文件不超过 32 MiB、120 秒。8 槽共享约 20.45 秒，可自由分配；每段按 10 毫秒向上取整，替换时可复用当前槽空间。</p>
+<p>在“项目与音色”的“8 槽采样库”编辑音频。8 槽共用 436 KiB，约 19.55 秒；可自由分配，页面显示剩余容量。先读取设备库，可保留已有采样。</p>
+<p>WAV：PCM 8/16/24/32 位或 32 位浮点，单声道或立体声，8–192 kHz；原文件不超过 32 MiB、120 秒。8 槽共享约 19.55 秒，可自由分配；每段按 10 毫秒向上取整，替换时可复用当前槽空间。</p>
 <ol><li><strong>先选完整库。</strong>修改现有实机采样时先连接项目库并“读取设备采样库”，再“备份网页采样库”。也可从内置库或 .fm1s 文件开始。</li><li><strong>选择采样槽与 WAV。</strong>设置名称（最多 15 个英文字符）、起点和终点，用“试听选段”检查裁切。</li><li><strong>可选：先在网页编辑。</strong>点击“编码并替换网页槽位”可先编辑网页库；直接写入设备时会自动完成这一步。</li><li><strong>试听仿真。</strong>点“送入仿真”，选择 SAMPLER 轨，用白键试听。</li><li><strong>写入实机。</strong>选择 WAV 后点“导入选段并写入设备”；已编辑好网页库时点“写入设备采样库”。完成设备读回校验后才会报告成功。写入会替换全部 8 槽，所有项目中的同号采样一起变化。</li><li><strong>分别备份。</strong>保存项目 .fm1，并备份采样库 .fm1s；只备份项目不能保存音频。</li></ol>
 <p>写入采样时设备暂停播放和录入。进度前段发送，后段从设备读回核对；保持连接直到显示读回一致。选择 SAMPLER 对应槽重新触发试听，808 是独立合成引擎，不会使用导入的音频。若中断导致采样未就绪，重新写入完整采样库即可恢复。项目槽独立保留。</p>
 <p>采样检查发现正在写入、读取或校验错误、回复不完整时，不会自动覆盖采样。请按提示检查连接；需要恢复时，在“项目与音色”中手动写入备份或内置采样库。</p></article>
 <article id="manual-connect" class="manual-chapter" tabindex="-1"><h3>08 · MIDI、蓝牙与时钟</h3>
-<h4>USB 与网页连接</h4><p>下载完整 HTML 后可离线试听和编辑；读写设备需要支持 Web MIDI 的电脑 Chrome／Edge 和 USB 数据线，并允许 MIDI／SysEx。不能连接时先关闭占用 MIDI 的其他网页或软件，再重新连接。设备 MIDI 通道依次为：轨 1–7 使用通道 1–7，轨 8 使用通道 10。</p><p>仿真页的“连接 MIDI 输入”用于外部键盘演奏网页。项目库连接用于读写实机项目和音色。USB 音频的输入／输出选择在电脑系统或音乐软件中设置。</p>
-<p>机身 MIDI IN（UART）与 USB MIDI 开机即同时接收，无需单独开启，也不受蓝牙总开关影响。两者的通道映射相同：轨道 1–7 使用通道 1–7，轨道 8 使用通道 10；请选择对应通道，并检查该轨静音与音量。</p>
+<h4>USB 与网页连接</h4><p>下载完整 HTML 后可离线试听和编辑；读写设备需要支持 Web MIDI 的电脑 Chrome／Edge 和 USB 数据线，并允许 MIDI／SysEx。不能连接时先关闭占用 MIDI 的其他网页或软件，再重新连接。默认输入通道：轨 1–7 使用通道 1–7，轨 8 使用通道 10；可在 TRACK ROLE 修改。</p><p>仿真页的“连接 MIDI 输入”用于外部键盘演奏网页。项目库连接用于读写实机项目和音色。USB 音频的输入／输出选择在电脑系统或音乐软件中设置。</p>
+<p>机身 MIDI IN（UART）与 USB MIDI 开机即同时接收，无需单独开启，也不受蓝牙总开关影响。两者使用相同的输入通道设置：默认轨道 1–7 使用通道 1–7，轨道 8 使用通道 10，可在 TRACK ROLE 修改。请选择对应通道，并检查轨道角色、静音与音量。</p>
 <h4>通道与接收规则</h4><p>所有通道消息都按发送端 CHAN 响应：CH1–7 对应轨道 1–7，CH10 对应轨道 8。音符、弯音、调制和控制器使用同一映射，与屏幕选中轨道无关；未分配的 CH8、CH9、CH11–16 忽略。更换音源不改变通道。MIDI IN、USB MIDI 与 BLE MIDI 使用相同规则。</p><p>例如键盘设为 CH2：音符、Pitch Bend、CC1、CC7 只控制轨 2；轨 8 使用 CH10。</p>
 <div class="manual-table"><table><thead><tr><th scope="col">接收消息</th><th scope="col">作用与范围</th></tr></thead><tbody>
 <tr><td>Note On / Off</td><td>全部音源接收 Note On／Off 和力度；Note On 力度 0 等同 Note Off。808／SAMPLER 按鼓音符选择声部。</td></tr>
@@ -243,7 +252,7 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
 <tr><td>CC7 / CC10 / CC11 / CC91</td><td>全部音源：CC7 轨道音量；CC10 声像（0 左、64 中、127 右）；CC11 表情（0 静音、127 原音量）；CC91 混响发送。</td></tr>
 <tr><td>CC64 / Channel Pressure / CC2 / CC4</td><td>FM、303、PSG、Pluck：CC64 延音，64–127 踩下，0–63 松开。FM 另接收通道触后用于颤音，以及 CC2／CC4 的振幅控制，效果取决于音色振幅敏感度。</td></tr>
 <tr><td>CC120 / CC121 / CC123</td><td>CC120 停止该轨声音；CC123 释放该轨外部音符（延音踏板仍有效）；CC121 复位实时弯音、表情、声像、调制和踏板，不改音色参数。</td></tr>
-<tr><td>Program Change</td><td>Program Change 使用 FM1 音色：FM 0–15 循环；303 0／1 为锯齿／方波；PSG 0–3 为 YM／AY／NOISE／MIX。其他音源忽略。部分软件显示为 1 起始编号。</td></tr>
+<tr><td>Program Change</td><td>Program Change 使用 FM1 音色：FM 0–127 对应独立库的 128 个位置；303 0／1 为锯齿／方波；PSG 0–3 为 YM／AY／NOISE／MIX。其他音源忽略。部分软件显示为 1 起始编号。</td></tr>
 <tr><td>Engine CC</td><td>303 还接收 CC5 滑音时间、CC71 共振、CC74 截止、CC75 衰减；PSG 接收 CC74 噪声、CC72 释放；Pluck 接收 CC74 亮度、CC75 衰减、CC72 释放。</td></tr>
 </tbody></table></div><p>CC7、CC91、音色切换与音色参数编辑可随项目保存。弯音、表情、声像及实时调制不写入项目；CC121 不撤销已编辑的 303 EnvMod。FM1 保留自己的音色体系，不提供 GM 128 音色表。</p>
 <h4>同步与走带</h4>
@@ -252,8 +261,8 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
 <h4>INT 与 MIDI 时钟</h4><p><strong>INT：</strong>FM1 使用内部速度，K4 可设 30–300 BPM。<strong>MIDI：</strong>跟随外部 MIDI Clock，需外部发送 Start／Continue 才开始或继续。此时旋转速度不会改变外部速度。超过约两秒收不到时钟，屏幕显示 LOST；检查外部设备是否发送时钟，或切回 INT。</p>
 </article>
 <article id="manual-update" class="manual-chapter" tabindex="-1"><h3>09 · 更新固件</h3><p>点击“刷回原厂 V15”，连接设备、勾选备份确认，再点击“刷入原厂 V15”并确认。网页会安装内置 V15，随后恢复四个库的 128 个出厂音色；已有音色会被覆盖。已是 V15 的设备会显示“恢复原厂音色”，无需重复刷固件。恢复中断时，重新连接并重试；完成后切换音色试听。Open 项目与采样不能用于原厂固件，原厂也不提供 Open 的构建哈希读回或项目库功能。回到 Open 时，点击“切回官方 Open 固件”并按强制烧录流程操作。不支持外部固件文件。</p>
-<ol><li>在“项目与音色”备份当前项目与采样库，需要保留的其他项目槽也逐一载入并备份。</li><li>打开最新版工作台的“设备更新”，通过 USB 数据线连接 FM1。固件已内置。</li><li>勾选“已保存需要保留的音色、工程和采样”，点击“连接设备”，允许 MIDI／SysEx。</li><li>核对设备提示，点击“开始更新”，保持供电和 USB 连接直到完成。</li><li>等待重启及版本核对。如果提示采样未就绪，在采样页写入备份或内置采样库。</li></ol>
-<p>正常完成的同布局更新会保留有效项目槽和采样库；刷写前请备份工程和采样。设备重启后，未保存的内存编辑不会自动恢复。固件更新也不会自动把网页仿真中的项目传到设备。</p><p>若更新中断或设备停在升级界面，保留<strong>同一版本的这张网页</strong>，检查连接后重新连接并按提示继续。从其他固件迁移时，开启“强制烧录”，重新连接并确认兼容风险。固件不支持 USB-MIDI 升级协议时，请使用该版本配套的恢复工具。跨固件迁移可能清除项目和采样，务必先备份。</p>
+<ol><li>在“项目与音色”备份当前项目与采样库，其他需要保留的项目槽也逐一载入并备份。独立音色库 A–D 四组分别“读取此组”并“导出此组 .syx”；PLAY 轨的音色修改另行导出，DX7 也可存入独立库后再备份。</li><li>打开最新版工作台的“设备更新”，通过 USB 数据线连接 FM1。固件已内置。</li><li>勾选“已保存需要保留的音色、工程和采样”，点击“连接设备”，允许 MIDI／SysEx。</li><li>核对设备提示，点击“开始更新”，保持供电和 USB 连接直到完成。</li><li>等待重启及版本核对。如果提示采样未就绪，在采样页写入对应的 .fm1s 备份。写入内置采样库会替换全部 8 槽，不能找回原来的自定义采样。</li></ol>
+<p>正常完成的同布局更新会保留有效项目槽和采样库；刷写前仍请分别备份工程、音色和采样。设备重启后，未保存的内存编辑不会自动恢复。固件更新也不会自动把网页仿真中的项目传到设备。</p><p>若更新中断或设备停在升级界面，保留<strong>同一版本的这张网页</strong>，检查连接后重新连接并按提示继续。从其他固件迁移时，开启“强制烧录”，重新连接并确认兼容风险。固件不支持 USB-MIDI 升级协议时，请使用该版本配套的恢复工具。跨固件迁移可能清除项目和采样，务必先备份。</p>
 <p>正常连接已识别其他固件（例如 FM-1_015）时，点击 启用强制烧录并重新连接。这一步只开启模式并重新连接，不会写入固件。页面会说明接下来缺少哪一步；确认已备份后，再点 强制烧录 并确认兼容风险才会开始。也可点击强制烧录勾选行的任意位置开启。设备仍需支持兼容的 USB-MIDI 升级协议。</p><p>拔插 USB 后重新点击连接即可；页面会清除旧设备信息。烧录与项目库切换时按提示重新连接。固件写入后请等待采样检查完成；“固件已更新”但采样未就绪时，只需检查或恢复采样库，无需重复烧录。</p><p>连接失败时，展开“连接详情”查看本次浏览器检测到的 MIDI IN／OUT。未发现端口、端口无法配对、设备未回复型号是不同的问题。先关闭其他 MIDI 软件和更新网页，再重新开机、插拔 USB 并连接；强制烧录不能跳过设备握手。</p></article>
 <article id="manual-help" class="manual-chapter" tabindex="-1"><h3>10 · 常见问题</h3>
 <h4>没有声音，或 MASTER 看起来没有变化</h4><p>网页检查静音按钮、输出电平和系统音量。实机检查 MASTER、轨道 LEVEL、静音／独奏和输出连接；MASTER 最小位置静音。</p>
@@ -263,7 +272,7 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
 <h4>换采样后其他项目的鼓声也变了</h4><p>所有项目共用 8 个采样槽。恢复对应的 .fm1s 库可找回原音频；导入 .fm1 项目不会恢复采样。</p>
 <h4>挂音、组合键没松开</h4><p>实机按 HOME＋PLAY。网页按 Esc 或“紧急停音”，并取消锁定按钮。停止演奏后再关闭其他 MIDI 输入来源。</p>
 <h4>网页无法连接或按钮不可用</h4><p>已识别设备时，切换强制烧录会自动重新连接，不会自动写入。等待连接完成，勾选备份确认，再点击强制烧录并确认兼容警告。尚未连接时，请先点击连接设备。</p><p>用电脑 Chrome／Edge 打开网页链接或完整 HTML，避免使用不运行脚本的附件预览。检查 MIDI／SysEx 权限、USB 数据线和设备连接；关闭占用端口的软件。若浏览器提示安全上下文问题，请从 localhost 或 HTTPS 打开页面。</p>
-<p>首次用播放按钮、面板 PLAY 或空格播放时，会先开启声音。开启失败会保持停止，处理浏览器声音提示后可再次播放。声音开启过程中点“紧急停音”或切换面板页，会取消等待中的播放。</p></article>
+<p>首次用播放按钮、面板 PLAY 或空格播放时，会先开启声音。开启失败会保持停止，处理浏览器声音提示后可再次播放。声音开启过程中点“紧急停音”或切换面板页，会取消等待中的播放。</p><p>Tap Tempo：在 FX 的 DELAY 页直接连按 SEQ，其他页面按住 HOME 连按 SEQ，或点击网页 TAP；连续两拍起生效，最多平均四个间隔，范围 30–300 BPM。FX 用 PRESETS 翻到 DELAY：K1 开关 SYNC，K2 调分频或毫秒，K3 调内部 BPM，K4 调反馈。新建工程默认同步八分音符；关闭 SYNC 后为固定时间 FREE，约 30–2040 毫秒。切换模式选择最接近的时间。T 为三连音，D 为附点；同步延迟跟随内部或外部 MIDI BPM，时钟丢失时保持最后间隔。旧工程保留原来的手动延迟；使用同步分频或扩展固定时间的工程需要新版固件。</p></article>
 </div></div>
 </section>
 <dialog id="about-dialog" class="save-dialog about-dialog" aria-labelledby="about-title"><h2 id="about-title">M-VAVE FM1</h2><p>© 2026 M-VAVE。APP 采用 GPLv3＋SDK 链接例外，可依许可修改和再分发，按现状提供，不提供担保。SDK 与第三方组件条款见下方声明。</p><p><a href="/*FM1_SOURCE_URL*/" target="_blank" rel="noopener noreferrer">源码与 SDK</a> · <a href="https://forum.m-vave.com" target="_blank" rel="noopener noreferrer">官方论坛</a></p><details><summary>版权与许可声明</summary><pre>/*FM1_NOTICES*/</pre></details><form method="dialog"><button>关闭</button></form></dialog>
@@ -317,7 +326,7 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
   }));
   window.addEventListener('hashchange',()=>openChapter(location.hash.slice(1)));
   openChapter(location.hash.slice(1));
-  let pkg,openPkg,stockPkg,updater,library,voices=[],projectBytes,timbreBytes,libraryReady=false,connected=false,busy=false,writing=false,finishingUpdate=false,same=false,migration=false,forceSuggested=false,updateResult='',watchedAccess,midiRequest;
+  let pkg,openPkg,stockPkg,updater,library,voices=[],voiceBankBytes,projectBytes,timbreBytes,libraryReady=false,connected=false,busy=false,writing=false,finishingUpdate=false,same=false,migration=false,forceSuggested=false,updateResult='',watchedAccess,midiRequest;
   let connecting;
   function beginConnection(){
     const controller=new AbortController();
@@ -627,16 +636,17 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
     if(!timbreBytes)throw Error('请先选择音色文件');
     const track=Number($('timbre-track').value);
     if(!confirm(FM1I18n.t('替换轨道 '+(track+1)+' 的音源和音色？鼓与旋律互换会清空此轨步进。')))return;
-    await library.upload(2,track,timbreBytes);await refreshLibrary();message('音色已导入，请保存项目以保留修改。');
+    await library.upload(2,track,timbreBytes);await refreshLibrary();message('音色已导入。NORMAL 轨请保存项目；PLAY 轨请导出轨道音色，DX7 也可存入独立库。');
   }));
   $('timbre-export').addEventListener('click',()=>perform(async()=>{
     const track=Number($('timbre-track').value);
     saveFile(FM1Web.timbreFile(await library.download(2,track)),'FM1-track-'+(track+1)+'.fm1t');message('轨道音色已导出。');
   }));
   $('patch-file').addEventListener('change',()=>perform(async()=>{
-    voices=[];$('patch-choice').replaceChildren();const file=$('patch-file').files[0];if(!file)return;
+    voices=[];voiceBankBytes=undefined;$('patch-choice').replaceChildren();const file=$('patch-file').files[0];if(!file)return;
     if(file.size>4104)throw Error('请选择单音色或 32 音色 DX7 .syx 文件');
-    voices=FM1Web.readVoices(new Uint8Array(await file.arrayBuffer()));
+    const bytes=new Uint8Array(await file.arrayBuffer());voices=FM1Web.readVoices(bytes);
+    if(bytes.length===4104)voiceBankBytes=bytes.slice(6,4102);
     voices.forEach((p,i)=>$('patch-choice').append(option(i,(i+1)+' · '+String.fromCharCode(...p.slice(145,155)).replace(/[^\x20-\x7e]/g,'?'))));
     message('已校验 '+voices.length+' 个音色，请选择音色与目标 DX7 轨道。');
   }));
@@ -644,11 +654,34 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
     const track=patchTarget(),patch=voices[Number($('patch-choice').value)];
     if(!patch||track<0)throw Error('请选择 DX7 轨道与音色');
     if(!confirm(FM1I18n.t('替换轨道 '+(track+1)+' 的音色？该轨道的音符会停止。')))return;
-    await library.upload(1,track,patch);message('音色已导入。请保存项目以保留修改。');
+    await library.upload(1,track,patch);message('音色已导入。NORMAL 轨请保存项目；PLAY 轨请导出轨道音色，DX7 也可存入独立库。');
   }));
   $('patch-export').addEventListener('click',()=>perform(async()=>{
     const track=patchTarget();if(track<0)throw Error('请先将一条轨道设为 DX7，再刷新列表');
     const patch=await library.download(1,track);saveFile(FM1Web.voiceFile(patch,track===7?9:track),'FM1-track-'+(track+1)+'.syx');message('音色已导出为 DX7 .syx 文件。');
+  }));
+  function bankSlots(raw){
+    const group=Number($('bank-group').value),old=$('bank-slot').value;
+    const list=raw?FM1Web.readVoices(FM1Web.bankFile(raw)):[];
+    $('bank-slot').replaceChildren(...Array.from({length:32},(_,i)=>option(i,(group*32+i+1)+' · '+(list[i]?String.fromCharCode(...list[i].slice(145,155)).replace(/[^\x20-\x7e]/g,' '):'DX7'))));
+    $('bank-slot').value=old||'0';
+  }
+  bankSlots();$('bank-group').addEventListener('change',()=>bankSlots());
+  $('bank-read').addEventListener('click',()=>perform(async()=>{bankSlots(await library.readBank(Number($('bank-group').value)));message('此组 32 个音色已读取。');}));
+  $('bank-export').addEventListener('click',()=>perform(async()=>{const group=Number($('bank-group').value);saveFile(FM1Web.bankFile(await library.readBank(group)),'FM1-bank-'+String.fromCharCode(65+group)+'.syx');message('音色组已导出。');}));
+  async function storeBankVoice(fromTrack){
+    const program=Number($('bank-group').value)*32+Number($('bank-slot').value);
+    const patch=fromTrack?await library.download(1,patchTarget()):voices[Number($('patch-choice').value)];
+    if(!patch)throw Error('请先选择 DX7 文件中的音色或目标 DX7 轨');
+    if(!confirm(FM1I18n.t('替换独立音色库的音色 ')+(program+1)+'？'))return;
+    bankSlots(await library.saveVoice(program,patch));message('音色已写入独立库，读回校验通过。');
+  }
+  $('bank-file-voice').addEventListener('click',()=>perform(()=>storeBankVoice(false)));
+  $('bank-track-voice').addEventListener('click',()=>perform(()=>storeBankVoice(true)));
+  $('bank-file-all').addEventListener('click',()=>perform(async()=>{
+    const group=Number($('bank-group').value),raw=voiceBankBytes||FM1Web.voiceBank(voices);
+    if(!confirm(FM1I18n.t('替换此组全部 32 个音色？建议先导出此组备份。')))return;
+    bankSlots(await library.writeBank(group,raw));message('整组音色已写入，读回校验通过。');
   }));
   $('install').addEventListener('click',async()=>{
     if(busy||finishingUpdate||!connected||migration||same||!$('backup').checked)return;

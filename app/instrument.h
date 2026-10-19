@@ -81,6 +81,20 @@ struct groove_view {
     uint64_t active_steps;
 };
 static inline unsigned groove_channel(unsigned track) { return track == 7 ? 9U : track; }
+
+/* Roles and input channels are device/session preferences. The default is
+ * eight normal tracks with the original channel map. Play ignores arrangement
+ * playback and retains its instrument/held notes across load and undo. Off
+ * releases its engine; its project row remains available for later restoration.
+ * Mute and Solo use the same mixer controls within each role group. */
+enum { GROOVE_TRACK_NORMAL, GROOVE_TRACK_PLAY, GROOVE_TRACK_OFF };
+FM1_DSP_CODE unsigned groove_track_role(unsigned track);
+FM1_DSP_CODE unsigned groove_midi_input_channel(unsigned track);
+int groove_track_role_set(unsigned track, unsigned role);
+int groove_midi_input_set(unsigned track, unsigned channel);
+void groove_edit_forget_history(void);
+void groove_edit_track_reset(unsigned track); /* control-only, render gate held */
+
 /* Live arpeggiator / drum repeat: rate, direction, range, gate, swing, hold.
  * internal tempo also runs while stopped, external clock follows transport.
  * Settings and enable are stored per project. Held notes are never stored. */
@@ -92,7 +106,7 @@ void groove_arp_edit(unsigned track, unsigned parameter, int delta);
  * mode advances only on received F8; Start/Continue wait for the next tick. */
 enum { GROOVE_CLOCK_INTERNAL, GROOVE_CLOCK_MIDI };
 enum { GROOVE_CLOCK_WAIT, GROOVE_CLOCK_LOCKED, GROOVE_CLOCK_LOST };
-unsigned groove_clock_mode(void);
+FM1_DSP_CODE unsigned groove_clock_mode(void);
 void groove_clock_set(unsigned mode);
 /* Initialize before audio starts. Sequence edits and views belong to the
  * single control callback; unchanged edits do not pause rendering. */
@@ -105,6 +119,12 @@ void groove_sequence_edit(unsigned track, unsigned step, unsigned note, unsigned
 unsigned groove_sequence_length(unsigned track);
 void groove_sequence_length_set(unsigned track, unsigned steps);
 void groove_tempo_edit(int delta);
+/* Control task only. Tap returns BPM, 0 while arming, or -1 for MIDI clock.
+ * Millisecond timestamps wrap naturally. Current is zero without MIDI lock. */
+int groove_tempo_tap(uint32_t now);
+unsigned groove_tempo_current(void);
+unsigned groove_tempo_saved(void);
+void groove_screen_tap(uint32_t now);
 void groove_sequence_view(unsigned track, unsigned step, struct groove_view *view);
 uint64_t groove_drum_steps(unsigned track, unsigned drum);
 /* Called with playback suspended, after changing the source. */
@@ -164,6 +184,12 @@ struct groove_project {
     uint8_t arp[GROOVE_TRACKS][2];
 };
 _Static_assert(sizeof(struct groove_project) == 4064, "project v4 layout");
+/* Arrangement snapshots include dormant rows; raw capture still exports the
+ * actual Play timbre. Tuning follows the same selective transaction boundary. */
+int groove_arrangement_capture(struct groove_project *p);
+int groove_arrangement_tuning_capture(struct groove_tuning t[GROOVE_TRACKS]);
+int groove_arrangement_tuning_apply(const struct groove_tuning t[GROOVE_TRACKS]);
+
 enum { GROOVE_PROJECT_SLOTS = 16, GROOVE_PROJECT_BYTES = 4064,
        GROOVE_PROJECT_LEGACY_BYTES = 4048 };
 /* Optional tuning block after an exported/imported project: magic 'FM1T'
@@ -219,7 +245,18 @@ void groove_transfer_poll(void);
 void groove_transfer_init(void);
 int groove_fm_import(unsigned track, const uint8_t patch[156]);
 void groove_fm_name_edit(unsigned track, unsigned character, char value);
+/* Delay byte: 0..127 keeps all legacy times; 128..136 selects
+ * 1/32T, 1/32, 1/16T, 1/16, 1/8T, 1/16D, 1/8, 1/8D, 1/4.
+ * FREE 137..201 = 360..1000 ms in 10 ms steps; 202..253 = 1020..2040 ms
+ * in 20 ms steps. 254/255 remain invalid. The project layout is unchanged.
+ * Edit parameter 4 toggles SYNC; conversion selects the nearest time.
+ * Parameters 0..3 retain their meaning. New projects default to 1/8. */
+enum { GROOVE_DELAY_SYNC = 128, GROOVE_DELAY_LAST = 136,
+       GROOVE_DELAY_FREE_LAST = 253, GROOVE_DELAY_DEFAULT = 134 };
+static inline unsigned groove_delay_synced(unsigned value)
+{ return value >= GROOVE_DELAY_SYNC && value <= GROOVE_DELAY_LAST; }
 void groove_effects_get(uint8_t values[4]);
+unsigned groove_delay_ticks(void); /* 44.1 kHz / 8, applied delay time */
 void groove_sends_get(unsigned track, uint8_t values[2]);
 void groove_sends_edit(unsigned track, unsigned parameter, int delta);
 void groove_effects_edit(unsigned parameter, int delta);
@@ -289,11 +326,14 @@ struct groove_project *groove_project_scratch(void); /* control-only, transient 
 /* Project sectors stay at 0..68 KiB; a single shared 456 KiB sample bank follows. */
 enum { GROOVE_SAMPLE_OFFSET = 69632, GROOVE_SAMPLE_BYTES = 466944,
        GROOVE_FLASH_BYTES = GROOVE_SAMPLE_OFFSET + GROOVE_SAMPLE_BYTES };
-/* The last Flash sector holds per-slot tuning tables (app/project.c), so the
- * sample bank accepted for new transfers stops one sector short. A bank already
- * stored at the old full size stays readable; it only blocks tuning saves. */
+/* Five final sectors hold the four DX7 banks and tuning/session preferences.
+ * New sample transfers stop before them. Larger legacy banks stay readable;
+ * writes to overlapping extension storage are rejected before erasing Flash. */
 enum { GROOVE_TUNING_OFFSET = GROOVE_FLASH_BYTES - 4096,
-       GROOVE_SAMPLE_LIMIT = GROOVE_SAMPLE_BYTES - 4096 };
+       GROOVE_LIBRARY_OFFSET = GROOVE_TUNING_OFFSET - 4 * 4096,
+       GROOVE_SAMPLE_LIMIT = GROOVE_LIBRARY_OFFSET - GROOVE_SAMPLE_OFFSET };
+/* Finish any committed shared journal before starting a new transaction. */
+int groove_storage_prepare(void);
 void groove_samples_init(void);
 void groove_samples_poll(void);
 void groove_samples_stop(void); /* gate already held */
@@ -304,4 +344,31 @@ int groove_samples_write(unsigned offset, const uint8_t *data, unsigned bytes);
 int groove_samples_finish(void);
 void groove_samples_cancel(void);
 int groove_samples_read(unsigned offset, uint8_t *data, unsigned bytes);
+
+/* MIDI performance routing. Device preferences occupy eight bytes and are
+ * independent of project/undo data. Modes: 0 local, 1 local+MIDI, 2 MIDI only.
+ * Settings: mode, output channel, output ports, Local Control, live output,
+ * clock output, clock source (AUTO/USB/BLE/DIN), Thru source, Thru destinations. */
+struct groove_midi_config { uint8_t channel[4], mode[2], flags, thru; };
+void groove_midi_defaults(struct groove_midi_config *config);
+int groove_midi_config_valid(const struct groove_midi_config *config);
+void groove_midi_config_read(struct groove_midi_config *config);
+void groove_midi_config_apply(const struct groove_midi_config *config);
+void groove_midi_init(void);
+void groove_midi_clock_reset(void);
+void groove_midi_poll(void);
+void groove_midi_panic(void);
+int groove_midi_local(const uint8_t *message, size_t bytes);
+void groove_midi_fader(unsigned track, unsigned value);
+unsigned groove_midi_setting(unsigned track, unsigned parameter);
+void groove_settings_midi(unsigned track, unsigned parameter, int delta);
+/* parameter 0 role, 1 input channel. Changes retain all eight project rows. */
+int groove_settings_track(unsigned track, unsigned parameter, int delta);
+int groove_midi_clock_accept(unsigned source, uint8_t status);
+uint32_t groove_midi_dropped(void);
+FM1_DSP_CODE unsigned groove_midi_mode(unsigned track);
+FM1_DSP_CODE void groove_midi_note(unsigned track, unsigned note, unsigned velocity);
+FM1_DSP_CODE void groove_midi_track_reset(unsigned track);
+FM1_DSP_CODE void groove_midi_transport(unsigned owner, uint8_t status);
+FM1_DSP_CODE void groove_midi_clock(unsigned owner, unsigned tempo);
 #endif

@@ -10,15 +10,19 @@ static int16_t bluetooth_pcm[FM1_BLOCK_WORDS] __attribute__((aligned(32)));
 void fm1_output_reset(void) { output_gain = 0; }
 static inline __attribute__((always_inline)) int32_t limit(int64_t value)
 {
-    return value > 8388607 ? 8388607 : value < -8388608 ? -8388608 : (int32_t)value;
+    /* Bias signed 24-bit PCM into [0, 2^24). Unsigned arithmetic also
+     * defines the check at the int64 limits, without two wide compares. */
+    if (((uint64_t)value + 8388608U) >> 24)
+        return value < 0 ? -8388608 : 8388607;
+    return (int32_t)value;
 }
 FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
 {
     if (!output) return;
     unsigned target = fm1_engine_output_level();
     if (target > 127U) target = 127U;
-    if (output_gain < target) output_gain += target - output_gain > 8U ? 8U : target - output_gain;
-    else if (output_gain > target) output_gain -= output_gain - target > 8U ? 8U : output_gain - target;
+    int delta = (int)target - (int)output_gain;
+    output_gain = (unsigned)((int)output_gain + (delta > 8 ? 8 : delta < -8 ? -8 : delta));
 
     uint16_t usb_gain[2] = {0, 0};
     int usb_frames = fm1_usb_audio_read(usb_pcm, FM1_BLOCK_FRAMES, usb_gain);
@@ -33,8 +37,12 @@ FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
         output[i] = usb_frames == -2 ? 0 : limit(value);
     }
     if (fm1_bluetooth_audio_read(bluetooth_pcm, FM1_BLOCK_FRAMES) == FM1_BLOCK_FRAMES) {
-        for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i)
-            output[i] = limit((int64_t)output[i] + (int32_t)bluetooth_pcm[i] * (int32_t)(output_gain * 2U));
+        /* output is already clipped to 24 bits. Adding signed 16-bit PCM
+         * times at most 254 fits in 25 bits, so this stage needs no int64. */
+        for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i) {
+            int32_t value = output[i] + (int32_t)bluetooth_pcm[i] * (int32_t)(output_gain * 2U);
+            output[i] = value > 8388607 ? 8388607 : value < -8388608 ? -8388608 : value;
+        }
     }
     (void)fm1_usb_audio_write(output, FM1_BLOCK_FRAMES);
 }

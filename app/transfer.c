@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 #include "instrument.h"
 #include "tuning_hook.h"
+#include "fm_patch.h"
 #include "fm1_engine_control.h"
 #include <stdlib.h>
 #include <string.h>
@@ -18,10 +19,14 @@
 #else
 #define TRANSFER_WORD volatile unsigned
 #endif
-static struct { uint8_t bytes[192]; TRANSFER_WORD length; } incoming;
-static uint8_t request[192], reply[96];
-static unsigned request_length, reply_length, reply_pending;
-static uint32_t reply_started, last_activity;
+static struct { uint8_t bytes[192], source; TRANSFER_WORD length; } incoming;
+static struct reply_cache {
+    uint8_t request[192], reply[96];
+    unsigned request_length, reply_length, pending;
+    uint32_t started;
+} replies[3];
+static unsigned session_source;
+static uint32_t last_activity;
 static uint8_t *transfer;
 static unsigned transfer_size, transferred, transfer_kind, transfer_target, transfer_writing;
 static void barrier(void)
@@ -39,6 +44,7 @@ void fm1_app_sysex(const uint8_t *m, size_t n)
         !(n == 6 && m[1] == 0x7f && (m[2] == 0 || m[2] == 0x7f) && m[3] == 6) &&
         !(n == 163 && m[1] == 0x43 && m[2] < 16 && m[3] == 0 && m[4] == 1 && m[5] == 27))
         return;
+    incoming.source = (uint8_t)fm1_midi_input_source();
     memcpy(incoming.bytes, m, n);
     barrier();
     incoming.length = (unsigned)n;
@@ -53,11 +59,12 @@ static void transfer_cancel(void)
 void groove_transfer_init(void)
 {
     transfer_cancel();
-    incoming.length = request_length = reply_length = reply_pending = 0;
+    incoming.length = 0; memset(replies,0,sizeof replies);
+    session_source = FM1_MIDI_USB;
 }
 static int transfer_begin(unsigned kind, unsigned target, unsigned size, unsigned writing)
 {
-    if (kind > 3 || (kind == 1 && (target >= GROOVE_TRACKS || size != 156)) ||
+    if (kind > 4 || (kind == 4 && (target >= 4 || size != 4096)) || (kind == 1 && (target >= GROOVE_TRACKS || size != 156)) ||
         (kind == 2 && (target >= GROOVE_TRACKS || size != sizeof(struct groove_preset))) ||
         (!kind && (target || (size != GROOVE_PROJECT_BYTES && size != GROOVE_PROJECT_LEGACY_BYTES &&
                               (!writing || size != GROOVE_PROJECT_TUNED_BYTES)))) ||
@@ -89,11 +96,17 @@ static int command(unsigned cmd, const uint8_t *data, unsigned n, uint8_t *out, 
 {
     int r = GROOVE_PROJECT_INVALID;
     *count = 0;
+    /* Additive capability reply; command 21 retains its old exact layout. */
+    if (cmd == 22 && !n) {
+        out[0]=1; out[1]=128; out[2]=4; out[3]=(uint8_t)groove_fm_library_available();
+        put32(out+4,GROOVE_SAMPLE_LIMIT); out[8]=3; /* session roles and extended/synchronized delay */
+        *count=9; return 0;
+    }
     if (cmd == 21 && !n) {
         out[0] = groove_tuning_capture && groove_tuning_apply ? 1 : 0;
         out[1] = GROOVE_PROJECT_TUNED_BYTES & 255;
         out[2] = GROOVE_PROJECT_TUNED_BYTES >> 8;
-        put32(out + 3, GROOVE_SAMPLE_LIMIT);
+        put32(out + 3, GROOVE_SAMPLE_BYTES - 4096);
         *count = 7; return 0;
     }
     if (cmd == 20 && !n) {
@@ -154,10 +167,11 @@ static int command(unsigned cmd, const uint8_t *data, unsigned n, uint8_t *out, 
     }
     if (cmd == 1 && n == 2) {
         unsigned size = data[0] == 2 ? sizeof(struct groove_preset) : data[0] == 1 ? 156
-                        : data[0] == 3 ? GROOVE_PROJECT_TUNED_BYTES : GROOVE_PROJECT_BYTES;
+                        : data[0] == 4 ? 4096 : data[0] == 3 ? GROOVE_PROJECT_TUNED_BYTES : GROOVE_PROJECT_BYTES;
         r = transfer_begin(data[0], data[1], size, 0);
         if (!r) {
-            r = data[0] == 2 ? groove_timbre_export(data[1], transfer, size)
+            r = data[0] == 4 ? groove_fm_library_read(data[1],transfer)
+                : data[0] == 2 ? groove_timbre_export(data[1], transfer, size)
                 : data[0] == 1 ? groove_fm_copy(data[1], transfer, NULL)
                         : groove_project_export(transfer, size);
             if (r)
@@ -186,7 +200,8 @@ static int command(unsigned cmd, const uint8_t *data, unsigned n, uint8_t *out, 
         }
     } else if (cmd == 5 && n == 4 && transfer && transfer_writing && transferred == transfer_size) {
         if (get32(data) == ~groove_crc32(~0U, transfer, transfer_size)) {
-            r = transfer_kind == 2 ? groove_timbre_import(transfer_target, transfer, transfer_size)
+            r = transfer_kind == 4 ? groove_fm_library_write(transfer_target,transfer)
+                : transfer_kind == 2 ? groove_timbre_import(transfer_target, transfer, transfer_size)
                 : transfer_kind == 1 ? groove_fm_import(transfer_target, transfer)
                               : groove_project_import(transfer, transfer_size);
             if (!r)
@@ -221,95 +236,121 @@ void groove_transfer_poll(void)
     uint32_t now = fm1_millis();
     if (transfer && now - last_activity > 10000U)
         transfer_cancel();
-    if (reply_pending) {
-        if (!fm1_midi_send(reply, reply_length) || now - reply_started > 2000U)
-            reply_pending = 0;
-        else
-            return;
+    /* Retry each port independently. A blocked BLE reply never delays USB
+     * notes or its transfer ACK. Cached retries also belong to that port. */
+    for (unsigned p=0;p<3;++p) if (replies[p].pending) {
+        int r=fm1_midi_send_port(p,replies[p].reply,replies[p].reply_length);
+        if (r!=-2 || now-replies[p].started>2000U) replies[p].pending=0;
     }
     unsigned n = incoming.length;
-    if (!n)
-        return;
+    if (!n) return;
     barrier();
-    if (request_length == n && !memcmp(request, incoming.bytes, n) && reply_length) {
+    unsigned source=incoming.source;
+    struct reply_cache *c=&replies[source];
+    if (c->pending) return;
+    if (c->request_length == n && !memcmp(c->request, incoming.bytes, n) && c->reply_length) {
         incoming.length = 0;
-        reply_pending = 1;
-        reply_started = last_activity = now;
-        if (!fm1_midi_send(reply, reply_length)) reply_pending = 0;
+        c->started=now;
+        if (source==session_source || (!transfer && groove_samples_status()!=3)) last_activity=now;
+        c->pending=fm1_midi_send_port(source,c->reply,c->reply_length)==-2;
         return;
     }
-    memcpy(request, incoming.bytes, n);
-    barrier();
-    incoming.length = 0;
-    request_length = n;
-    reply_length = 0;
+    /* Keep the last file reply across MMC, voice dumps and rejected frames.
+     * These can arrive while the sender is retrying a lost chunk ACK. Hold
+     * the incoming mailbox until validation has consumed all of its bytes. */
+    const uint8_t *message = incoming.bytes;
     for (unsigned i = 1; i + 1 < n; ++i)
-        if (request[i] >= 128)
-            return;
-    if (request[1] == 0x7f) {
-        groove_screen_mmc(request[4]);
+        if (message[i] >= 128)
+            goto discard;
+    if (message[1] == 0x7f) {
+        unsigned code = message[4];
+        barrier();
+        incoming.length = 0;
+        if (groove_midi_clock_accept(source, code == 1 ? 0xfc : 0xfa)) groove_screen_mmc(code);
         return;
     }
-    if (request[1] == 0x43) {
+    if (message[1] == 0x43) {
         unsigned sum = 0;
         for (unsigned i = 6; i < 162; ++i)
-            sum += request[i];
-        unsigned track = request[2] == 9 ? 7 : request[2];
-        if (!(sum & 127U) && track < 8 && request[2] == groove_channel(track)) {
+            sum += message[i];
+        if (!(sum & 127U)) {
             uint8_t patch[156];
-            memcpy(patch, request + 6, 155);
+            unsigned channel = message[2];
+            memcpy(patch, message + 6, 155);
             patch[155] = 63;
-            (void)groove_fm_import(track, patch);
+            barrier();
+            incoming.length = 0;
+            for (unsigned track=0;track<GROOVE_TRACKS;++track)
+                if (groove_track_role(track) != GROOVE_TRACK_OFF && channel == groove_midi_input_channel(track))
+                    (void)groove_fm_import(track, patch);
+            return;
         }
-        return;
+        goto discard;
     }
-    if (n < 10 || request[5] >= 64)
-        return;
+    if (n < 10 || message[5] >= 64)
+        goto discard;
     unsigned sum = 0;
     for (unsigned i = 1; i + 1 < n; ++i)
-        sum += request[i];
+        sum += message[i];
     if (sum & 127U)
-        return;
+        goto discard;
     uint8_t data[132], response[65];
     unsigned bits = 0, value = 0, bytes = 0;
     for (unsigned i = 8; i + 2 < n; ++i) {
-        value |= (unsigned)request[i] << bits;
+        value |= (unsigned)message[i] << bits;
         bits += 7;
         if (bits >= 8) {
             if (bytes == sizeof data)
-                return;
+                goto discard;
             data[bytes++] = (uint8_t)value;
             value >>= 8;
             bits -= 8;
         }
     }
     if (value || bits >= 7)
-        return;
+        goto discard;
+    if ((transfer || groove_samples_status() == 3) && source != session_source) {
+        uint8_t busy[12]; memcpy(busy,message,8); busy[5]|=64;
+        busy[8]=64-FM1_FLASH_BUSY; busy[9]=0; unsigned sum=0;
+        for (unsigned i=1;i<10;++i) sum+=busy[i];
+        busy[10]=(uint8_t)((0U-sum)&127U); busy[11]=0xf7;
+        (void)fm1_midi_send_port(source,busy,sizeof busy);
+        goto discard;
+    }
+    memcpy(c->request, message, n);
+    barrier();
+    incoming.length = 0;
+    c->request_length = n;
+    c->reply_length = 0;
     unsigned count = 0;
-    int r = command(request[5], data, bytes, response + 1, &count);
+    int r = command(c->request[5], data, bytes, response + 1, &count);
+    if (!r && (transfer || groove_samples_status() == 3)) session_source = source;
     response[0] = (uint8_t)(r < 0 ? 64 - r : r);
-    memcpy(reply, request, 8);
-    reply[5] |= 64;
+    memcpy(c->reply, c->request, 8);
+    c->reply[5] |= 64;
     unsigned at = 8;
     value = bits = 0;
     for (unsigned i = 0; i <= count; ++i) {
         value |= (unsigned)response[i] << bits;
         bits += 8;
         while (bits >= 7) {
-            reply[at++] = value & 127U;
+            c->reply[at++] = value & 127U;
             value >>= 7;
             bits -= 7;
         }
     }
     if (bits)
-        reply[at++] = value & 127U;
+        c->reply[at++] = value & 127U;
     sum = 0;
     for (unsigned i = 1; i < at; ++i)
-        sum += reply[i];
-    reply[at++] = (uint8_t)((0U - sum) & 127U);
-    reply[at++] = 0xf7;
-    reply_length = at;
-    reply_pending = 1;
-    reply_started = last_activity = now;
-    if (!fm1_midi_send(reply, reply_length)) reply_pending = 0;
+        sum += c->reply[i];
+    c->reply[at++] = (uint8_t)((0U - sum) & 127U);
+    c->reply[at++] = 0xf7;
+    c->reply_length = at;
+    c->started = last_activity = now;
+    c->pending = fm1_midi_send_port(source,c->reply,c->reply_length)==-2;
+    return;
+discard:
+    barrier();
+    incoming.length = 0;
 }

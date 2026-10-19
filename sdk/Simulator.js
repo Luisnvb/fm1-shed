@@ -27,6 +27,7 @@
           case 'control': c.sim_control(message.kind,message.index,message.value); break;
           case 'release': c.sim_release(); break;
           case 'panic': c.sim_panic(); break;
+          case 'tapTempo': c.sim_tap_tempo(); break;
           case 'select': result=c.sim_select(message.track,message.source); break;
           case 'open': result=c.sim_open(message.page); if(result)throw Error('当前音源不支持此编辑页。'); break;
           case 'preset': result=c.sim_preset(message.index); break;
@@ -61,13 +62,18 @@
             if (!message.data || (message.timbre?message.data.length!==223:message.patch?message.data.length!==156:![4048,4064,4264].includes(message.data.length))) throw Error('文件长度无效');
             new Uint8Array(c.memory.buffer,c.sim_file(),message.data.length).set(message.data);
             result=message.timbre?c.sim_timbre_import():message.patch?c.sim_patch_import():c.sim_import(message.data.length); break;
+          case 'library-read':
+            result=c.sim_library_read(message.bank);if(!result)data=new Uint8Array(c.memory.buffer,c.sim_file(),4096).slice();break;
+          case 'library-write':
+            if(!(message.data instanceof Uint8Array)||message.data.length!==4096)throw Error('音色库长度无效');
+            new Uint8Array(c.memory.buffer,c.sim_file(),4096).set(message.data);result=c.sim_library_write(message.bank);break;
           case 'clear': c.sim_clear(); break;
           case 'samples': {
-            if (!(message.data instanceof Uint8Array) || message.data.length<512 || message.data.length>462848) throw Error('采样库长度无效');
+            if (!(message.data instanceof Uint8Array) || message.data.length<512 || message.data.length>446464) throw Error('采样库长度无效');
             const flash=new Uint8Array(c.memory.buffer,c.sim_flash()+69632,466944),previous=flash.slice();
-            // Keep the final 4096 bytes (per-project tuning). The full backup
+            // Keep the final 20480 bytes (DX7 library and per-project tuning). The full backup
             // still permits rollback of a pre-cap bank on validation failure.
-            flash.fill(255,0,462848);flash.set(message.data);
+            flash.fill(255,0,446464);flash.set(message.data);
             result=c.sim_sample_bank(message.data.length);
             if(result){
               new Uint8Array(c.memory.buffer,c.sim_flash()+69632,466944).set(previous);
@@ -274,7 +280,10 @@
     if(!ready)return Promise.reject(Error('仿真尚未载入'));
     // These operations release/reset the C controls. Clear their page-side
     // owners too, so a stale latch cannot suppress the next press.
-    if(['select','import','clear','open','preset','step'].includes(type))release();
+    if(['select','import','clear','open','step'].includes(type))release();
+    // Presets retain already sounding Play keys, but must cancel gestures
+    // still waiting for audio permission on the previous project.
+    if(type==='preset'){wakingPlay=undefined;wakingKeys.clear();}
     const id=++sequence;return new Promise((resolve,reject)=>{
       const timer=setTimeout(()=>{pending.delete(id);reject(Error('仿真操作超时'));},7000);
       pending.set(id,{resolve,reject,timer});dispatch({type,id,...args});
@@ -302,7 +311,7 @@
       wakingPlay=undefined;wakingKeys.clear();
       const pageTips={
         0:'总览：SELECT 选轨，K3（STEP）选步；PRESETS 换预设，ALGORITHM／K2 换音源。',
-        1:'SEQ：ALGORITHM 翻底部五页，PRESETS 选步，SELECT 选轨，OCT−／OCT+ 换步进页；SYNC / LOOP 页设时钟，长按 SEQ 复制与更多。',
+        1:'SEQ：ALGORITHM 翻底部八页，PRESETS 选步，SELECT 选轨，OCT−／OCT+ 换步进页；SYNC / LOOP 页设时钟，TRACK ROLE 页设角色与输入通道，长按 SEQ 复制与更多。',
         2:'FM 详细编辑：黑键选择算子／音高／全局，SELECT 翻参数页，K1–K4 调节；长按 OP 键开关算子。',
         3:fm?'FM 总包络：K1 起音，K2 衰减，K3 保持，K4 释放；各算子包络在 EDIT 详细编辑页调节。':'非 FM 包络：K1–K4 调屏幕列出的真实参数，SELECT 选轨；鼓／采样用 PRESETS 或白键选声部，重新触发试听。',
         4:fm?'FM LFO：SELECT 翻参数页，K1–K4 调节；LFO 返回演奏。':'轨道 LFO：K1 速度，K2 深度，K3 音量／声像，K4 波形；深度 0 为关闭，SELECT 选轨。参数随项目和音色保存。',
@@ -311,7 +320,7 @@
         7:'蓝牙：K1 总开关，K2 音频，K3 BLE 角色，K4 时钟；PRESETS 选屏幕下方操作，SAVE 执行，清除配对需再次确认。无线连接请在实机操作。',
         8:'保存项目：SELECT／PRESETS 选 USER 槽，再按 SAVE 保存；覆盖其他已有槽需确认，成功后自动返回。',
         9:'FM 音色命名：SELECT 选字符，K1 改字符；EDIT 返回编辑，HOME 返回轨道。',
-        10:'效果：SELECT 选轨，K1 混响、K2 延迟；PRESETS 打开共用细调，FX 返回。',
+        10:'效果：PRESETS 切 TRACK／SHARED／DELAY。DELAY 页 K1 开关 SYNC、K2 调分频或毫秒、K3 调 BPM、K4 调反馈；连按 SEQ 或 TAP 打拍。',
         11:'音源预览：ALGORITHM／K2／SELECT／PRESETS 选择，SAVE 确认，HOME 取消；确认前保留当前音色。',
         12:'复制与粘贴：SELECT 选操作，SAVE 执行；复制后自动选中 PASTE。PRESETS／K2 选目标步，OCT−／OCT+ 选目标页，再按一次 SAVE 粘贴。',
         15:'FM 常用参数：K1 算法、K2 反馈、K3 移调、K4 音量；PRESETS 换当前轨音色。短按 EDIT 返回，长按进细调。',
@@ -626,7 +635,11 @@
     }
   }
   function release(){wakingPlay=undefined;wakingKeys.clear();for(const timer of pulseTimers.values())clearTimeout(timer);pulseTimers.clear();holders.clear();latched.clear();held.clear();send('release');for(const e of ui.holds){e.classList.remove('held','latched');e.setAttribute('aria-pressed','false');}}
-  function feedback(kind,index,element){if(kind===0){
+  function feedback(kind,index,element){
+    if(((kind===0&&index===11)||(kind===10&&index===15))&&state?.[1]===10&&lcdScreen?.knobs?.[0]?.[0]==='SYNC'){
+      say('DELAY 页连按 SEQ 或 TAP 设置 BPM；外部 MIDI 时钟下速度只读。');return;
+    }
+    if(kind===0){
     if(state?.[1]===7){say('蓝牙：K1 总开关，K2 音频，K3 BLE 角色，K4 时钟；PRESETS 选屏幕下方操作，SAVE 执行，清除配对需再次确认。无线连接请在实机操作。');return;}
     const tips={2:'FX：SELECT 选轨，K1 混响、K2 延迟，0 关闭发送；PRESETS 切换细调页。',3:'SCL：DX7 算子键盘缩放；其他音源打开音高参数页。',10:'ARP：短按开关，长按调参数；ALGORITHM 翻页，第一页调分频／方向／音域／门长，第二页调 Swing／Hold。SELECT 选轨，开关和参数随项目保存，不保存按住的音符。',11:'SEQ：ALGORITHM 翻底部参数页，PRESETS 选步；RHYTHM/REC 页 K4 选循环长度。再按 SEQ 返回基础页并恢复跟随。'};if(tips[index])say(tips[index]);}}
   function latch(item){latched.has(item)?latched.delete(item):latched.add(item);syncHolds();}
@@ -700,6 +713,7 @@
 
   async function action(fn){try{await fn();}catch(error){say(error.message);}}
   $('sim-start').onclick=()=>{muted=!muted;return start(!muted);};$('sim-panic').onclick=()=>{release();send('panic');};
+  $('sim-tap-tempo').onclick=()=>send('tapTempo');
   $('sim-play-control').onclick=()=>action(async()=>{
     if(starting)return;
     release();
@@ -749,12 +763,26 @@
   });
   $('sim-timbre-export').onclick=()=>action(async()=>{save(FM1Web.timbreFile(await request('export',{timbre:true})),'FM1-timbre.fm1t');say('已导出当前轨道的音源类型与全部音色参数。');});
   $('sim-patch-export').onclick=()=>action(async()=>{save(FM1Web.voiceFile(await request('export',{patch:true})),'FM1-voice.syx');say('已导出当前轨道的 DX7 音色。');});
+  for(let i=0;i<128;i++){const o=document.createElement('option');o.value=i;o.textContent=(i+1)+' · '+String.fromCharCode(65+(i>>5));$('sim-library-slot').append(o);}
+  $('sim-library-save').onclick=()=>action(async()=>{
+    const program=Number($('sim-library-slot').value),patch=selectedFile?.patch?voices[Number($('sim-voice').value)]:await request('export',{patch:true});
+    const raw=await request('library-read',{bank:program>>5});raw.set(FM1Web.packVoice(patch),(program&31)*128);
+    await request('library-write',{bank:program>>5,data:raw});say('已保存到仿真独立音色库的音色 '+(program+1)+'。');
+  });
+  $('sim-library-bank').onclick=()=>action(async()=>{
+    const bank=Number($('sim-library-slot').value)>>5,raw=selectedFile?.bank||FM1Web.voiceBank(voices);
+    if(!confirm(FM1I18n.t('用文件替换所选位置所在组的全部 32 个仿真音色？')))return;
+    await request('library-write',{bank,data:raw});say('整组音色已写入仿真库。');
+  });
+  $('sim-library-export').onclick=()=>action(async()=>{
+    const bank=Number($('sim-library-slot').value)>>5;save(FM1Web.bankFile(await request('library-read',{bank})),'FM1-bank-'+String.fromCharCode(65+bank)+'.syx');
+  });
   $('sim-file').onchange=async()=>{
     const revision=++fileRevision;selectedFile=undefined;voices=[];$('sim-voice').replaceChildren();$('sim-voice').hidden=true;availability();const file=$('sim-file').files[0];if(!file)return;
     try {
     if(file.size>4280)throw Error('请选择 .fm1 项目、.fm1t 音色或 DX7 .syx 文件');const bytes=new Uint8Array(await file.arrayBuffer());
     if(revision!==fileRevision)return;
-    if(bytes[0]===240){voices=FM1Web.readVoices(bytes);voices.forEach((voice,i)=>{const option=document.createElement('option');option.value=i;option.textContent=(i+1)+' · '+String.fromCharCode(...voice.slice(145,155)).replace(/[^\x20-\x7e]/g,'?');$('sim-voice').append(option);});selectedFile={patch:true};}
+    if(bytes[0]===240){voices=FM1Web.readVoices(bytes);voices.forEach((voice,i)=>{const option=document.createElement('option');option.value=i;option.textContent=(i+1)+' · '+String.fromCharCode(...voice.slice(145,155)).replace(/[^\x20-\x7e]/g,'?');$('sim-voice').append(option);});selectedFile={patch:true,bank:bytes.length===4104?bytes.slice(6,4102):undefined};}
     else if(bytes[3]===84) selectedFile={timbre:true,data:FM1Web.readTimbreFile(bytes)};
     else selectedFile={data:FM1Web.readProjectFile(bytes)};
     $('sim-voice').hidden=!selectedFile.patch;availability();say(selectedFile.patch&&state[8+state[0]*20]!==0?'音色校验通过，请先选择 DX7 轨道再导入。':'文件校验通过，点击“导入到仿真”应用。');
@@ -790,7 +818,15 @@
     $('sim-midi-port').onchange=()=>{
       if(midiInput)midiInput.onmidimessage=null;
       midiInput=access.inputs.get($('sim-midi-port').value);release();send('panic');
-      if(midiInput)midiInput.onmidimessage=event=>{if(ready)send('midi',{data:new Uint8Array(event.data)});};
+      if(midiInput)midiInput.onmidimessage=event=>{
+        if(!ready)return;
+        const data=new Uint8Array(event.data);
+        // Keep note-offs, controllers and clock ordering while audio resumes.
+        send('midi',{data});
+        const playing=(data[0]&0xf0)===0x90&&data[2]>0||data[0]===0xfa||data[0]===0xfb;
+        // The statechange notification can lag behind the next MIDI event.
+        if(playing&&!muted&&(!audioOn||context?.state!=='running'))start(true);
+      };
     };
     say($('sim-midi-port').options.length>1?'选择一个输入端口；MIDI 通道沿用设备的轨道映射。':'未发现 MIDI 输入设备。');
     }finally{midiConnecting=false;availability();}

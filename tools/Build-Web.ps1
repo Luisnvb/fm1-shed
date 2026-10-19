@@ -3,7 +3,8 @@
 param(
     [string]$WasiSdk = $env:FM1_WASI_SDK,
     [string]$PackageJson,
-    [string]$SourceUrl = $env:FM1_SOURCE_URL
+    [string]$SourceUrl = $env:FM1_SOURCE_URL,
+    [switch]$LocalPreview
 )
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -97,12 +98,13 @@ $output = Join-Path $root $(if ($PackageJson) { 'build/official-web/FM1-Official
 foreach ($file in @($output, (Join-Path (Split-Path $output) 'SHA256SUMS.txt'))) {
     if ([IO.File]::Exists($file)) { [IO.File]::Delete($file) }
 }
-if ([string]::IsNullOrWhiteSpace($SourceUrl)) {
+if ($LocalPreview -and $PackageJson) { throw 'LocalPreview cannot produce a firmware distribution.' }
+if ([string]::IsNullOrWhiteSpace($SourceUrl) -and !$LocalPreview) {
     throw 'Set FM1_SOURCE_URL or -SourceUrl to the HTTPS URL of the matching source archive.'
 }
 $sourceUri = $null
-if (![Uri]::TryCreate($SourceUrl, [UriKind]::Absolute, [ref]$sourceUri) -or
-    $sourceUri.Scheme -cne 'https' -or $sourceUri.UserInfo -or $SourceUrl -match '[\r\n]') {
+if (!$LocalPreview -and (![Uri]::TryCreate($SourceUrl, [UriKind]::Absolute, [ref]$sourceUri) -or
+    $sourceUri.Scheme -cne 'https' -or $sourceUri.UserInfo -or $SourceUrl -match '[\r\n]')) {
     throw 'FM1_SOURCE_URL must be an HTTPS source URL without credentials.'
 }
 $versionMatch = [regex]::Match([IO.File]::ReadAllText((Join-Path $root 'app/version.h')), '(?m)^#define FM1_RELEASE_VERSION "(V(?:0[1-9]|[1-9][0-9]{1,2}))"\s*$')
@@ -120,6 +122,9 @@ $wasm = [IO.File]::ReadAllBytes($compiled.file)
 $simulation = [ordered]@{schema=1;release_version=$releaseVersion;sha256=(Hash $compiled.file);source_sha256=$compiled.source_sha256;
     sample_bank='synthesized-demo';data=[Convert]::ToBase64String($wasm)} | ConvertTo-Json -Compress
 $web = [IO.File]::ReadAllText((Join-Path $root 'sdk/Update.html.in'))
+if ($LocalPreview) {
+    $web = [regex]::Replace($web, '<a\b[^>]*href="/\*FM1_SOURCE_URL\*/"[^>]*>(.*?)</a>', '<span>$1 (local preview)</span>')
+}
 $replacements = @{
     '/*FM1_SOURCE_URL*/'=[Net.WebUtility]::HtmlEncode($sourceUrl)
     '/*FM1_PAYLOAD*/'=('const FM1_PACKAGE = ' + $(if ($PackageJson) { $PackageJson } else { 'null' }) + ';')
