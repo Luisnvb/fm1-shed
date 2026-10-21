@@ -20,6 +20,11 @@
 #define FM1_AUDIO_IRQ 11U
 #define FM1_AUDIO_PRIORITY 4U
 
+/* Fixed port C routing for ALNK (bits 6..7). */
+#define FM1_AUDIO_PORT_ROUTE (*(volatile uint32_t *)0x51030U)
+/* Audio clock select: 11.2896 MHz, 256 fs (bits 8..11). */
+#define FM1_AUDIO_CLOCK_SEL  (*(volatile uint32_t *)0x10014U)
+
 int fm1_audio_start(void);
 void fm1_audio_suspend(void);
 void fm1_audio_resume(void);

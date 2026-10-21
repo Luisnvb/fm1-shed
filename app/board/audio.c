@@ -90,14 +90,14 @@ int fm1_audio_start(void)
     memset(transmit, 0, sizeof transmit);
     fm1_output_reset();
     FM1_ALNK_CON0 = 0; FM1_ALNK_CON1 = 0; FM1_ALNK_CON2 = 0; FM1_ALNK_CON3 = 0;
-    *(volatile uint32_t *)0x51030U &= ~(3U << 6); /* fixed port C route */
+    FM1_AUDIO_PORT_ROUTE &= ~(3U << 6); /* fixed port C route */
     const uint32_t outputs = (1U << 0) | (1U << 1) | (1U << 2) | (1U << 6);
     FM1_PR(FM1_PC, FM1_OUT) |= outputs;
     FM1_PR(FM1_PC, FM1_DIE) |= 1U << 3;
     FM1_PR(FM1_PC, FM1_DIR) = (FM1_PR(FM1_PC, FM1_DIR) & ~outputs) | (1U << 3);
     FM1_PR(FM1_PC, FM1_PD) &= ~(1U << 3);
     FM1_PR(FM1_PC, FM1_PU) |= 1U << 3;
-    *(volatile uint32_t *)0x10014U &= ~(15U << 8); /* 11.2896 MHz, 256 fs */
+    FM1_AUDIO_CLOCK_SEL &= ~(15U << 8); /* 11.2896 MHz, 256 fs */
     FM1_ALNK_CON3 = 3U | (4U << 5);
     FM1_ALNK_CON0 = (1U << 8) | (1U << 7);
     FM1_ALNK_LEN = FM1_BLOCK_WORDS;
