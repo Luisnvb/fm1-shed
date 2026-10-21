@@ -37,7 +37,9 @@ V13 可以升级到 V14。工作台支持刷回原厂 V15，也支持从兼容�
 
 ## 编译
 
-需要 Windows x64、PowerShell、`curl.exe` 和 `tar.exe`。编译固件还需安装[杰理 PI32v2 clang 4.0.1 r3 编译器](https://doc.zh-jieli.com/Tools/zh-cn/dev_tools/dev_env/jl_toolchain.html)，所在目录须含 `bin/clang.exe`。
+需要 Windows x64、PowerShell、`curl.exe` 和 `tar.exe`。编译固件须使用 **杰理 Windows 工具链 2.5.3**，内含 PI32v2 clang 4.0.1。[从杰理下载 2.5.3 安装包](https://jl-update.oss-cn-shenzhen.aliyuncs.com/2.5.3.exe)，按[安装说明](https://doc.zh-jieli.com/Tools/zh-cn/dev_tools/dev_env/jl_toolchain.html)安装。将 `FM1_PI32_TOOLCHAIN` 指向含 `bin/clang.exe` 的 `pi32` 目录，通常为 `C:\JL\pi32`。FM1 继续使用 `r3` CPU 目标。
+
+构建会按 `sdk/manifest.json` 校验全部 22 个工具链文件。旧版 V14 开发包固定使用 2.5.2，会拒绝 2.5.3；升级时请一并更新完整源码和 SDK 开发包，保留清单校验。本修订中 `pi32/bin/clang.exe` 的预期 SHA-256 为 `d4bc97cf421c1ccc373dd8924ce88720ff7457b3f1478d15df4aeda6ae923bce`。
 
 本地网页预览：
 
@@ -52,6 +54,8 @@ V13 可以升级到 V14。工作台支持刷回原厂 V15，也支持从兼容�
 $env:FM1_PI32_TOOLCHAIN = 'C:\JL\pi32'
 .\build.bat --package
 ~~~
+
+仅在本地编译固件、不制作分发包时，可执行 `./sdk/Build.ps1 -FirmwareOnly -Toolchain 'C:\JL\pi32'`，无需设置分发源码地址。GitHub 上持续变化的 `tree/main` 页面不能代替对应构建的源码归档。
 
 网页由附带的 C 源码编译。首次编译会下载 WASI SDK 27，可设置 `FM1_WASI_SDK` 复用已有安装。输出为 `build/preview/index.html`、`build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc` 和 `build/official-web/FM1-Official-Open-Source.html`。
 

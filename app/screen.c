@@ -64,6 +64,9 @@ static __attribute__((noinline)) void paint_fill(unsigned x, unsigned y, unsigne
             paint_pixels[(row - paint_top) * (paint_end - paint_x) + col - paint_x] = color;
 }
 static const uint8_t punctuation[][6] = {
+    {45,8,8,8,8,8}, {47,0x60,0x18,6,1,0}, {43,8,8,0x3e,8,8},
+    {35,0x14,0x7f,0x14,0x7f,0x14}, {37,0x63,0x13,8,0x64,0x63},
+    {62,0x41,0x22,0x14,8,0}, {63,2,1,0x51,9,6},
     {33,0,0,0x5f,0,0}, {34,0,7,0,7,0}, {36,0x24,0x2a,0x7f,0x2a,0x12},
     {38,0x36,0x49,0x55,0x22,0x50}, {39,0,5,3,0,0}, {40,0,0x1c,0x22,0x41,0},
     {41,0,0x41,0x22,0x1c,0}, {42,0x14,8,0x3e,8,0x14}, {44,0,0x50,0x30,0,0},
@@ -91,43 +94,13 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
         if (x >= paint_end) break;
         if (x + w <= paint_x) continue;
         char letter = *s >= 'a' && *s <= 'z' ? (char)(*s - 'a' + 'A') : *s;
-        uint8_t special[5] = {0};
-        const uint8_t *shape = special;
+        static const uint8_t blank[5] = {0};
+        const uint8_t *shape = blank;
         if (*s >= '0' && *s <= '9')
             shape = font[*s - '0'];
         else if (letter >= 'A' && letter <= 'Z')
             shape = font[10 + letter - 'A'];
-        else if (*s == '-' || *s == '+') {
-            memset(special, 8, sizeof special);
-            if (*s == '+')
-                special[2] = 0x3e;
-        } else if (*s == '/') {
-            special[0] = 0x60;
-            special[1] = 0x18;
-            special[2] = 0x06;
-            special[3] = 1;
-        } else if (*s == '#') {
-            special[0] = special[4] = 0x14;
-            special[1] = special[3] = 0x7f;
-            special[2] = 0x14;
-        } else if (*s == '%') {
-            special[0] = 0x63;
-            special[1] = 0x13;
-            special[2] = 8;
-            special[3] = 0x64;
-            special[4] = 0x63;
-        } else if (*s == '>') {
-            special[0] = 0x41;
-            special[1] = 0x22;
-            special[2] = 0x14;
-            special[3] = 8;
-        } else if (*s == '?') {
-            special[0] = 2;
-            special[1] = 1;
-            special[2] = 0x51;
-            special[3] = 9;
-            special[4] = 6;
-        } else
+        else if (*s != ' ')
             for (unsigned i = 0; i < sizeof punctuation / sizeof punctuation[0]; ++i)
                 if ((uint8_t)*s == punctuation[i][0]) {
                     shape = punctuation[i] + 1;
@@ -137,12 +110,15 @@ static void text(unsigned x, unsigned y, const char *s, unsigned scale, uint16_t
         unsigned end_row = y + h < paint_top + PAINT_ROWS ? y + h : paint_top + PAINT_ROWS;
         unsigned first_col = x < paint_x ? paint_x : x;
         unsigned end_col = x + w < paint_end ? x + w : paint_end;
-        for (unsigned row = first_row; row < end_row; ++row)
+        unsigned stride = paint_end - paint_x;
+        for (unsigned row = first_row; row < end_row; ++row) {
+            unsigned mask = 1U << ((row - y) / scale);
+            uint16_t *pixel = paint_pixels + (row - paint_top) * stride + first_col - paint_x;
             for (unsigned col = first_col; col < end_col; ++col) {
                 unsigned column = (col - x) / scale;
-                paint_pixels[(row - paint_top) * (paint_end - paint_x) + col - paint_x] =
-                    column < 5U && (shape[column] & (1U << ((row - y) / scale))) ? color : background;
+                *pixel++ = column < 5U && (shape[column] & mask) ? color : background;
             }
+        }
     }
 }
 /* Eight tracks stay visible on HOME. SEQ maps the sixteen white keys to one
@@ -610,7 +586,7 @@ static void step_knob(unsigned col, unsigned bank)
     else if (setting == 4) strcpy(value, v ? "ON" : "OFF");
     else if (setting == 5 && !v) strcpy(value, "OFF");
     else if (setting < 7) decimal(value, v, 1);
-    else { struct groove_view view = {0}; groove_get_view(track, cursor, &view); note_name(view.step.note, value); }
+    else note_name(frame_views[track].step.note, value);
     if (groove_pad_count(track) && (setting == 1 || setting == 3 || setting == 4 || setting == 7)) strcpy(value, "--");
     knob(col, labels[setting], value, colors[col]);
 }
@@ -1218,11 +1194,9 @@ static void leds(const struct groove_view *v, unsigned visible)
         bits = 1U << white_keys[preset_slot];
     } else if (visible == MIX) {
         for (unsigned t = 0; t < 8; ++t) {
-            struct groove_view m = {0};
-            groove_get_view(t, 0, &m);
-            if (m.muted)
+            if (frame_views[t].muted)
                 bits |= 1U << white_keys[t];
-            if (m.solo)
+            if (frame_views[t].solo)
                 bits |= 1U << white_keys[t + 8];
         }
     } else
@@ -1266,26 +1240,29 @@ static void leds(const struct groove_view *v, unsigned visible)
 }
 static __attribute__((noinline)) void edit_page_draw(unsigned visible)
 {
-    uint32_t sig = visible * 33U + action + (action_confirm << 8);
-    sig = sig * 33U + cursor;
-    sig = sig * 33U + source_preview;
-    sig = sig * 33U + (unsigned)source_result;
-    for (unsigned i = 0; i < 7; ++i) sig = sig * 33U + groove_step_setting(track, cursor, i);
-    for (unsigned i = 0; i < 3; ++i) sig = sig * 33U + groove_sequence_setting(i);
-    sig = sig * 33U + groove_sequence_count_in();
-    sig = sig * 33U + frame_views[track].volume;
-    if (notice) sig = signature(sig, notice, (unsigned)strlen(notice));
-    if (visible == FM_QUICK) {
-        sig = signature(sig, frame_patch, 156);
-        sig = sig * 33U + frame_views[track].program;
-        sig = sig * 33U + frame_views[track].modified;
+    if (paint_rendering && paint_top + PAINT_ROWS <= 32) return;
+    if (!paint_rendering) {
+        uint32_t sig = visible * 33U + action + (action_confirm << 8);
+        sig = sig * 33U + cursor;
+        sig = sig * 33U + source_preview;
+        sig = sig * 33U + (unsigned)source_result;
+        for (unsigned i = 0; i < 7; ++i) sig = sig * 33U + groove_step_setting(track, cursor, i);
+        for (unsigned i = 0; i < 3; ++i) sig = sig * 33U + groove_sequence_setting(i);
+        sig = sig * 33U + groove_sequence_count_in();
+        sig = sig * 33U + frame_views[track].volume;
+        if (notice) sig = signature(sig, notice, (unsigned)strlen(notice));
+        if (visible == FM_QUICK) {
+            sig = signature(sig, frame_patch, 156);
+            sig = sig * 33U + frame_views[track].program;
+            sig = sig * 33U + frame_views[track].modified;
+        }
+        if (visible == ARP_EDIT) {
+            sig = sig * 33U + track + (groove_arp_enabled(track) << 8) + (arp_page << 9);
+            for (unsigned i = 0; i < 6; ++i) sig = sig * 33U + groove_arp_setting(track, i);
+        }
+        if (cache->middle_cache == sig) return;
+        cache->middle_cache = sig;
     }
-    if (visible == ARP_EDIT) {
-        sig = sig * 33U + track + (groove_arp_enabled(track) << 8) + (arp_page << 9);
-        for (unsigned i = 0; i < 6; ++i) sig = sig * 33U + groove_arp_setting(track, i);
-    }
-    if (cache->middle_cache == sig) return;
-    cache->middle_cache = sig;
     paint_fill(0, 32, 240, 208, BACK);
     memset(cache->foot_cache, 0xff, sizeof cache->foot_cache);
     if (visible == SOURCE) {
@@ -1344,14 +1321,14 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
     } else {
         text(8, 40, "DX7 QUICK EDIT", 2, ACCENT, BACK);
         char name[11]; memcpy(name, frame_patch + 145, 10); name[10] = 0;
-        number(8, 76, frame_views[track].program + 1, 2, 1, ACCENT, BACK);
-        text(20, 76, "/16", 1, DIM, BACK);
-        text(42, 76, frame_views[track].modified ? "*" : " ", 1, AMBER, BACK);
-        text(56, 72, name, 2, TEXT, BACK);
+        number(8, 76, frame_views[track].program + 1, 3, 1, ACCENT, BACK);
+        text(26, 76, "/128", 1, DIM, BACK);
+        text(56, 76, frame_views[track].modified ? "*" : " ", 1, AMBER, BACK);
+        text(70, 72, name, 2, TEXT, BACK);
         text(8, 102, "PRESETS SELECT VOICE", 1, TEXT, BACK);
         text(8, 126, "HOLD EDIT OPERATOR PARAMETERS", 1, DIM, BACK);
         text(8, 148, "ENV ENVELOPE    LFO MODULATION", 1, DIM, BACK);
-        text(8, 170, "SCL SCALING     KEYS PLAY", 1, DIM, BACK);
+        text(8, 170, "SEL SCALING     KEYS PLAY", 1, DIM, BACK);
         static const char *const labels[] = {"ALGORITHM", "FEEDBACK", "TRANSPOSE", "LEVEL"};
         int values[] = {frame_patch[134] + 1, frame_patch[135], (int)frame_patch[144] - 24, frame_views[track].volume};
         for (unsigned i = 0; i < 4; ++i) { char value[12]; decimal(value, values[i], 1); knob(i, labels[i], value, colors[i]); }
@@ -1403,9 +1380,6 @@ static void draw_page_body(const struct fm1_ble_status *ble)
         return;
     }
     if (visible == BLE) {
-        fm1_bluetooth_get_status(&frame_radio);
-        frame_radio_flags = groove_settings_radio_flags();
-        frame_radio_role = groove_settings_role_value();
         draw_ble(ble);
         return;
     }
@@ -1443,6 +1417,9 @@ static void draw_page_body(const struct fm1_ble_status *ble)
     } else {
         fm_draw(patch, &controls);
     }
+    /* Lower controls cannot intersect an upper LCD band. Avoid formatting
+     * their labels and querying the engine once for every unrelated band. */
+    if (paint_rendering && paint_top + PAINT_ROWS <= 184) return;
     if (visible == STEPS) {
         unsigned parameter = seq_page == 3 ? groove_step_setting(track, cursor, 5) : 0;
         uint32_t strip = parameter | (seq_page << 10) | ((unsigned)v->type << 13);
@@ -1629,6 +1606,9 @@ static void draw(const struct fm1_ble_status *ble)
     }
     frame_ble = *ble;
     if (visible == BLE) {
+        fm1_bluetooth_get_status(&frame_radio);
+        frame_radio_flags = groove_settings_radio_flags();
+        frame_radio_role = groove_settings_role_value();
         memset(frame_devices, 0, sizeof frame_devices);
         for (unsigned i = 0; i < ble->count && i < FM1_BLE_MAX_DEVICES; ++i)
             fm1_ble_get_device(i, &frame_devices[i]);

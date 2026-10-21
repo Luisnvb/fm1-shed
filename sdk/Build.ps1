@@ -297,7 +297,7 @@ if (!$Toolchain) { $Toolchain = Join-Path $sdk 'tools' }
 $Toolchain = [IO.Path]::GetFullPath($Toolchain)
 if (Test-Path -LiteralPath (Join-Path $Toolchain 'clang.exe')) { $Toolchain = Split-Path -Parent $Toolchain }
 $bin = Join-Path $Toolchain 'bin'
-if (!(Test-Path -LiteralPath (Join-Path $bin 'clang.exe'))) { throw 'Install the matching JieLi PI32v2 r3 toolchain and set FM1_PI32_TOOLCHAIN to its directory containing bin/clang.exe. See README.md.' }
+if (!(Test-Path -LiteralPath (Join-Path $bin 'clang.exe'))) { throw 'Install JieLi Windows toolchain 2.5.3 (PI32v2 clang 4.0.1, r3 target) and set FM1_PI32_TOOLCHAIN to its pi32 directory containing bin/clang.exe. See README.md for the versioned download.' }
 # Verify the matching SDK and toolchain before compiling APP.
 $manifest = Get-Content -LiteralPath (Join-Path $sdk 'manifest.json') -Encoding UTF8 -Raw | ConvertFrom-Json
 if ($manifest.abi -ne 131072) { throw 'This application requires the matching 128-frame SDK.' }
@@ -310,7 +310,7 @@ if ($manifest.external_toolchain) {
         $name = $entry.Name
         if ($name -cnotmatch '^(bin|lib)/[A-Za-z0-9_./-]+$' -or $name.Split('/') -contains '..' -or $entry.Value -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid external toolchain entry.' }
         $file = Join-Path $Toolchain $name
-        if (!(Test-Path -LiteralPath $file) -or (Hash $file) -cne $entry.Value) { throw "External toolchain does not match the SDK: $name. Install the matching version listed in sdk/manifest.json." }
+        if (!(Test-Path -LiteralPath $file) -or (Hash $file) -cne $entry.Value) { throw "External toolchain does not match the SDK: $name. This SDK revision requires JieLi Windows toolchain 2.5.3. Set FM1_PI32_TOOLCHAIN to its pi32 directory. Update the complete source + SDK kit together; see README.md for the versioned download." }
     }
 }
 $synth = Get-Content -LiteralPath (Join-Path $sdk 'synth.json') -Encoding UTF8 -Raw | ConvertFrom-Json

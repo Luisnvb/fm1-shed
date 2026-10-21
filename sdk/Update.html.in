@@ -189,13 +189,13 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
 <tr><td>PLAY / REC</td><td>播放／暂停／续播；音乐页开关音符录入。预设页的 PLAY 为载入并播放，切换预设不弹确认。</td></tr>
 <tr><td>SAVE</td><td>打开保存页，再按保存；菜单中用于执行／确认。HOME 取消。</td></tr>
 <tr><td>OCT− / OCT+</td><td>步进页翻 16 步；演奏时上下移调八度。</td></tr>
-<tr><td>ENV / LFO / FX / SCL</td><td>ENV 打开当前音源包络；LFO 打开当前轨调制；FX 按轨调混响和延迟，SCL 进入缩放细调。</td></tr>
+<tr><td>ENV / LFO / FX / SEL</td><td>ENV 打开当前音源包络；LFO 打开当前轨调制；FX 按轨调混响和延迟，SEL 进入缩放细调。</td></tr>
 <tr><td>ARP</td><td>短按开关当前轨琶音／鼓连奏；长按约 0.6 秒打开参数页。SELECT 选轨，ALGORITHM 翻页：分频／方向／音域／门长，Swing／Hold。</td></tr>
 </tbody></table></div>
 <p>总览转 K3（STEP）选择当前轨的步位置，录入时可移动写入位置。短按 REC 开关录音。</p>
 <p>同一轨的静音与独奏互斥：开启独奏会取消该轨静音，开启静音会取消该轨独奏；其他轨保持原状态。</p>
 <h4>网页操作</h4><p>选择预设后点“播放”试听。“读取与保存”管理设备读取和浏览器存档，“文件与 MIDI”导入、导出项目和音色。</p><p>常用编辑按钮直接打开音色、步进、混音和效果；其余功能在“更多编辑”。旋钮可拖动或滚轮调节，LCD 数值可点击编辑。电脑键盘 Z、S、X、D…演奏，空格播放，Esc 停音；输入文字和操作菜单时不会演奏。</p>
-<p>上排功能键在所有页面都有效：FX、SCL、ENV、LFO、EDIT、GLO、SEQ 可直接切页，ARP 短按开关、长按调参数，PLAY 控制播放。菜单或步进细节中按 REC，会进入 SEQ 基础页并开始录入；再按结束。SAVE 打开项目保存页，或执行屏幕内的确认；OCT−／OCT+ 在 SEQ 和复制菜单翻步进页，其他页面调八度。离开确认页不会执行待确认操作。</p>
+<p>上排功能键在所有页面都有效：FX、SEL、ENV、LFO、EDIT、GLO、SEQ 可直接切页，ARP 短按开关、长按调参数，PLAY 控制播放。菜单或步进细节中按 REC，会进入 SEQ 基础页并开始录入；再按结束。SAVE 打开项目保存页，或执行屏幕内的确认；OCT−／OCT+ 在 SEQ 和复制菜单翻步进页，其他页面调八度。离开确认页不会执行待确认操作。</p>
 <h4>LCD 数值直接编辑</h4><p>把鼠标放在 LCD 上的数值，出现高亮即可滚轮调节；每次按参数最小步长变化，不随滚动速度加速。也可点击打开大号数值框，用滚轮、＋／−或方向键细调，Esc 关闭。支持底部参数、顶部 BPM、总览各轨音量、SEQ 循环长度、步进详情的选步数字、音色参数行、效果参数行，以及 FM 的 ALG、FB、MONO／POLY、ADSR 开关、LFO 波形／同步／PM SENS。混音页也可点静音／独奏格子设置。状态、电平、固定量化和当前引擎不支持的参数只显示；外部 MIDI 时钟下 BPM 由外部控制。切换轨道或参数页会关闭旧编辑框，避免改错参数。总览调其他轨的小音量数字不会改变当前选轨。</p>
 <p>GLO 短按（小于 0.6 秒）进入或退出混音；按住 0.6 秒可临时查看混音，松开回原页。GLO、EDIT、SEQ、ARP 的长按过程中，屏幕顶部显示进度条。</p>
 <h4>组合键</h4><p>HOME＋PLAY 紧急停音回起点；HOME＋SAVE 撤销／重做；SEQ＋EDIT 打开更多菜单；EDIT＋REC 改 DX7 音色名。都可以从长按 SEQ 的菜单完成对应操作。网页需要锁住按键时可 Shift 点击或右击，再点释放；日常操作无需使用。</p></article>
@@ -219,7 +219,7 @@ button{border-radius:7px;background:#223039;border-color:#3b4b54;color:#d6e3e6;f
 <tr><td>SAMPLER · 采样</td><td>前 8 个白键选择并试听 8 槽采样，PRESETS 也可选择。第一页 Level／Tune／Length／Choke；长按 EDIT 后 SELECT 翻到第二页 Variation／Vel LPF。Choke 同组新击打会停止旧声，适合开闭镲。</td></tr>
 </tbody></table></div>
 <h4>各音源包络与 LFO</h4><p>ENV 在所有引擎上可用，显示该音源实际支持的参数。SELECT 选轨；鼓与采样可用 PRESETS 或白键选择声部。重新触发音符试听包络变化，空白旋钮表示该音源没有对应参数。</p><p>FM：K1 Attack、K2 Decay、K3 Sustain、K4 Release，调整即启用。303：K1 EnvMod、K2 Decay、K3 AccDec、K4 Cutoff；力度 100 及以上使用重音衰减 AccDec。PSG：K1 Release。Pluck：K1 Decay、K2 Release、K3 Bright。Sampler：K1 Length、K2 Choke。808：K1 Decay、K2 Attack、K3 Tone、K4 Tune，只显示所选鼓声部支持的项目。</p><p>非 FM 引擎按 LFO：K1 速度 0.05–20 Hz，K2 深度 0–100%，K3 音量起伏／左右声像，K4 三角波／方波／上升锯齿／下降锯齿。深度 0 即关闭；参数随项目、轨道音色及用户槽保存。SELECT 选轨，再按 LFO 返回。</p><p>LFO 作用于整个轨道，包括全部鼓／采样声部，也影响轨道效果发送。当前非 FM LFO 不提供音高或滤波目标。FM 保留原有音高／振幅 LFO 和两页参数。效果使用 FX。</p>
-<h4>FM 包络、调制与命名</h4><p>EDIT 的 OP RATES／OP LEVELS 显示同一条包络：RATE 越大，对应阶段越短；LEVEL 改变折点高度。L3 保持到松键，随后按 R4 到达 L4。六个算子和 PITCH 包络均会随参数更新。图形为便于编辑的示意，不是毫秒刻度；实际时长还取决于音符、缩放与电平。</p><p>FM ENV 的 A、D、S、R 都会实时改变曲线；横向按实际包络时间比例绘制，保持段只作示意，持续到松键。ADSR 关闭时曲线变灰并标为预览，实际声音使用各算子的 DX7 包络。</p><p>ENV 打开总 ADSR 页，K1–K4 为 Attack／Decay／Sustain／Release；转动任一参数会自动启用，重新弹键试听。只浏览页面保留原音色；需要回到原 DX7 包络时，PRESETS 向左关闭覆盖层，向右重新启用。LFO 用 SELECT 翻两页，SCL 进入当前算子的键盘缩放。长按 SEQ，选择 DX7 PATCH NAME 并按 SAVE，编辑 10 字符音色名，SELECT 选字符，K1 改字符，保存项目后保留。</p><p>多数调音和包络参数需重新触发音符试听。切换 DX7 内置音色会替换编辑、打开全部算子并关闭总 ADSR。</p>
+<h4>FM 包络、调制与命名</h4><p>EDIT 的 OP RATES／OP LEVELS 显示同一条包络：RATE 越大，对应阶段越短；LEVEL 改变折点高度。L3 保持到松键，随后按 R4 到达 L4。六个算子和 PITCH 包络均会随参数更新。图形为便于编辑的示意，不是毫秒刻度；实际时长还取决于音符、缩放与电平。</p><p>FM ENV 的 A、D、S、R 都会实时改变曲线；横向按实际包络时间比例绘制，保持段只作示意，持续到松键。ADSR 关闭时曲线变灰并标为预览，实际声音使用各算子的 DX7 包络。</p><p>ENV 打开总 ADSR 页，K1–K4 为 Attack／Decay／Sustain／Release；转动任一参数会自动启用，重新弹键试听。只浏览页面保留原音色；需要回到原 DX7 包络时，PRESETS 向左关闭覆盖层，向右重新启用。LFO 用 SELECT 翻两页，SEL 进入当前算子的键盘缩放。长按 SEQ，选择 DX7 PATCH NAME 并按 SAVE，编辑 10 字符音色名，SELECT 选字符，K1 改字符，保存项目后保留。</p><p>多数调音和包络参数需重新触发音符试听。切换 DX7 内置音色会替换编辑、打开全部算子并关闭总 ADSR。</p>
 <h4>轨道效果</h4><p>按 FX，SELECT 选轨；K1 混响发送、K2 延迟发送，0 即关闭该轨发送，六种音源均可用。K3 轨道音量、K4 共用效果返回量。转 PRESETS 到第二页细调：K1 混响时间、K2 延迟时间、K3 反馈、K4 返回量，由所有轨道共用。808 在 EDIT 中仍可设置每个鼓声部的额外发送量。轨道发送量随项目和轨道音色保存；共用效果参数仅随项目保存。静音停止新发送，已有尾音自然衰减。</p>
 </article>
 <article id="manual-mix" class="manual-chapter" tabindex="-1"><h3>05 · 音量与混音</h3>

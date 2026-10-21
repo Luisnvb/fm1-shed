@@ -6,6 +6,14 @@
   // audio is enabled it runs on the page; its complete memory moves to the
   // audio thread at a C-call boundary, preserving edits and the current page.
   function coreRuntime() {
+    const sameBytes=(a,b)=>{
+      if(!a||a.length!==b.length)return false;
+      for(let i=0;i<b.length;i++)if(a[i]!==b[i])return false;
+      return true;
+    };
+    const label=bytes=>{
+      let text='';for(const byte of bytes){if(!byte)break;text+=String.fromCharCode(byte);}return text;
+    };
     return class FM1Core {
       constructor(wasm, flash, snapshot) {
         this.c = new WebAssembly.Instance(new WebAssembly.Module(wasm), {}).exports;
@@ -93,14 +101,21 @@
         const name=new Uint8Array(c.memory.buffer,c.sim_project_name(),12),position=c.sim_preset_position();
         const targets=c.sim_lcd_targets(),count=c.sim_lcd_count();
         const labels=new Uint8Array(c.memory.buffer,c.sim_knobs(),128);
-        message.screen={first:c.sim_step_first(),knobs:Array.from({length:4},(_,i)=>[0,1].map(field=>String.fromCharCode(...labels.slice(i*32+field*16,i*32+field*16+16)).replace(/\0.*$/s,'')))};
         const bytes=new Uint8Array(c.memory.buffer,targets,count*64),words=new Int32Array(c.memory.buffer,targets,count*16);
-        message.screen.context=c.sim_lcd_context();message.screen.mask=c.sim_lcd_mask();
-        message.screen.targets=Array.from({length:count},(_,i)=>({
-          rect:Array.from(words.slice(i*16,i*16+4)),action:words[i*16+4],index:words[i*16+5],owner:words[i*16+6],
-          label:String.fromCharCode(...bytes.slice(i*64+32,i*64+48)).replace(/\0.*$/s,''),
-          value:String.fromCharCode(...bytes.slice(i*64+48,i*64+64)).replace(/\0.*$/s,'')
-        }));
+        const first=c.sim_step_first(),context=c.sim_lcd_context(),mask=c.sim_lcd_mask();
+        // Retain decoded labels until their C bytes or edit context changes.
+        // Copies own their memory and remain valid across WASM memory growth.
+        if(!this.screen||this.screen.first!==first||this.screen.context!==context||this.screen.mask!==mask||
+            !sameBytes(this.labels,labels)||!sameBytes(this.targets,bytes)){
+          this.labels=labels.slice();this.targets=bytes.slice();
+          this.screen={first,context,mask,
+            knobs:Array.from({length:4},(_,i)=>[0,1].map(field=>label(labels.subarray(i*32+field*16,i*32+field*16+16)))),
+            targets:Array.from({length:count},(_,i)=>({
+              rect:Array.from(words.subarray(i*16,i*16+4)),action:words[i*16+4],index:words[i*16+5],owner:words[i*16+6],
+              label:label(bytes.subarray(i*64+32,i*64+48)),value:label(bytes.subarray(i*64+48,i*64+64))
+            }))};
+        }
+        message.screen=this.screen;
         message.workspace={name:String.fromCharCode(...name).trim(),slot:position&255,factory:(position&768)===768,dirty:!!c.sim_project_dirty(),revision:this.projectRevision()};
         message.countIn=c.sim_count_in();
         const revision=c.sim_frame_revision();
@@ -442,7 +457,8 @@
     }
     lcdItems=new Map(items.map(item=>[lcdId(item),item]));
     if(lcdDialog.open){if(lcdItems.has(lcdEditing))lcdValue();else closeLcd();}
-    const key=screen.context+':'+screen.first+':'+state[209+state[0]]+':'+items.map(item=>[lcdId(item),...item.rect].join(',')).join(';');
+    const lengths=state[1]===0?state.subarray(209,217).join(','):state[209+state[0]];
+    const key=screen.context+':'+screen.first+':'+lengths+':'+items.map(item=>[lcdId(item),...item.rect].join(',')).join(';');
     const host=$('sim-lcd-targets');
     if(key!==lcdKey){
       lcdKey=key;host.replaceChildren();
@@ -641,7 +657,7 @@
     }
     if(kind===0){
     if(state?.[1]===7){say('蓝牙：K1 总开关，K2 音频，K3 BLE 角色，K4 时钟；PRESETS 选屏幕下方操作，SAVE 执行，清除配对需再次确认。无线连接请在实机操作。');return;}
-    const tips={2:'FX：SELECT 选轨，K1 混响、K2 延迟，0 关闭发送；PRESETS 切换细调页。',3:'SCL：DX7 算子键盘缩放；其他音源打开音高参数页。',10:'ARP：短按开关，长按调参数；ALGORITHM 翻页，第一页调分频／方向／音域／门长，第二页调 Swing／Hold。SELECT 选轨，开关和参数随项目保存，不保存按住的音符。',11:'SEQ：ALGORITHM 翻底部参数页，PRESETS 选步；RHYTHM/REC 页 K4 选循环长度。再按 SEQ 返回基础页并恢复跟随。'};if(tips[index])say(tips[index]);}}
+    const tips={2:'FX：SELECT 选轨，K1 混响、K2 延迟，0 关闭发送；PRESETS 切换细调页。',3:'SEL：DX7 算子键盘缩放；其他音源打开音高参数页。',10:'ARP：短按开关，长按调参数；ALGORITHM 翻页，第一页调分频／方向／音域／门长，第二页调 Swing／Hold。SELECT 选轨，开关和参数随项目保存，不保存按住的音符。',11:'SEQ：ALGORITHM 翻底部参数页，PRESETS 选步；RHYTHM/REC 页 K4 选循环长度。再按 SEQ 返回基础页并恢复跟随。'};if(tips[index])say(tips[index]);}}
   function latch(item){latched.has(item)?latched.delete(item):latched.add(item);syncHolds();}
   function pulse(kind,index) {
     const owner='click:'+kind+':'+index;clearTimeout(pulseTimers.get(owner));
@@ -693,7 +709,7 @@
       FM1I18n.scan(box);$('sim-device').append(box);
     }
     const buttons=[['OCT −',0,60,258,90,34],['OCT ＋',1,170,258,90,34]];
-    ['FX','SCL','ENV','LFO','EDIT','GLO'].forEach((n,i)=>buttons.push([n,2+i,582+i*63,174,54,48]));
+    ['FX','SEL','ENV','LFO','EDIT','GLO'].forEach((n,i)=>buttons.push([n,2+i,582+i*63,174,54,48]));
     ['HOME','SAVE','ARP','SEQ','PLAY','REC'].forEach((n,i)=>buttons.push([n,8+i,582+i*63,236,54,48]));
     for(const [label,id,x,y,w,h]of buttons){
       const button=document.createElement('button');if(id!==12)FM1I18n.text(button,label);button.className='panel-button';button.dataset.sim='';button.dataset.led=id;button.dataset.button=id;button.disabled=true;

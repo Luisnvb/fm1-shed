@@ -30,6 +30,7 @@ static uint32_t dropped;
 /* Boards with independent held-key state discard its old MIDI ownership when
  * routing changes. FM1's common panel already retries released keys itself. */
 extern void groove_midi_panel_reset(void) __attribute__((weak));
+extern void groove_midi_panel_track_reset(unsigned track) __attribute__((weak));
 
 static FM1_AUDIO_CODE void barrier(void)
 {
@@ -112,7 +113,7 @@ unsigned groove_midi_setting(unsigned track, unsigned parameter)
 }
 static FM1_AUDIO_CODE void enqueue(unsigned lane, unsigned owner, unsigned ports, unsigned status, unsigned a, unsigned b)
 {
-    if (!ports) return;
+    if (!ports && status != 0xf6) return;
     struct events *q = &events[lane];
     unsigned w = q->write;
     if (w - q->read == QUEUE) { ++q->lost; return; }
@@ -159,7 +160,7 @@ static unsigned owner_channel(unsigned owner) { return owner < 16 ? channel(owne
 static int held_elsewhere(const struct output *o, unsigned owner, unsigned ch, unsigned note)
 {
     for (unsigned i = 0; i < 32; ++i)
-        if (i != owner && owner_channel(i) == ch && (o->held[i][note >> 3] & (1U << (note & 7U)))) return 1;
+        if (i != owner && (o->held[i][note >> 3] & (1U << (note & 7U))) && owner_channel(i) == ch) return 1;
     return 0;
 }
 static void deliver(unsigned port, unsigned owner, const uint8_t *m)
@@ -205,8 +206,14 @@ static void release_owner(unsigned owner, unsigned ports)
 {
     unsigned ch = owner_channel(owner);
     for (unsigned p = 0; p < 3; ++p) if (ports & (1U << p)) {
-        for (unsigned n = 0; n < 128; ++n) if (output[p].held[owner][n >> 3] & (1U << (n & 7U))) {
-            uint8_t off[3] = {(uint8_t)(0x80 | ch), (uint8_t)n, 0}; deliver(p, owner, off);
+        for (unsigned byte = 0; byte < 16; ++byte) {
+            unsigned held = output[p].held[owner][byte];
+            while (held) {
+                unsigned bit = (unsigned)__builtin_ctz(held);
+                held &= held - 1;
+                uint8_t off[3] = {(uint8_t)(0x80 | ch), (uint8_t)(byte * 8 + bit), 0};
+                deliver(p, owner, off);
+            }
         }
     }
 }
@@ -255,7 +262,10 @@ void groove_midi_poll(void)
                 for (unsigned p = 0; p < 3; ++p) if (ports & (1U << p)) recover(p);
                 if (groove_midi_panel_reset) groove_midi_panel_reset();
             }
-            else if (m[0] == 0xf6) { release_owner(owner, ports); release_owner(owner + 8, ports); }
+            else if (m[0] == 0xf6) {
+                release_owner(owner, ports); release_owner(owner + 8, ports);
+                if (groove_midi_panel_track_reset) groove_midi_panel_track_reset(owner);
+            }
             else send_event(owner, ports, m);
             found = 1;
         }
