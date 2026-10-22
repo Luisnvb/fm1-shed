@@ -3,6 +3,7 @@
 #include "fm_patch.h"
 #include "version.h"
 #include "fm1_engine_control.h"
+#include "shed/shed.h"
 #include <string.h>
 enum {
     BACK = 0x0000,
@@ -2565,7 +2566,11 @@ void groove_screen_control(void)
 {
     struct fm1_controls controls;
     fm1_controls_read(&controls);
-    uint32_t now = fm1_millis(), key_down = controls.keys & ~previous_keys;
+    uint32_t now = fm1_millis();
+    /* Shed (app/shed/): an ear-training mode that takes over the panel
+     * entirely while active (HOME+SCL toggles it). See shed.h. */
+    if (shed_tick(&controls, now)) return;
+    uint32_t key_down = controls.keys & ~previous_keys;
     unsigned master_changed = groove_master_update(controls.knob);
     if (master_changed && (!notice || notice == master_notice || (int32_t)(now - notice_until) >= 0)) {
         unsigned level = fm1_engine_output_level();
