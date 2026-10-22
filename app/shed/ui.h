@@ -23,16 +23,19 @@ enum fm1_shed_action {
     FM1_SHED_ACTION_REVEAL          = 1U << 2, /* EDIT: reveal the answer */
     FM1_SHED_ACTION_NEXT            = 1U << 3, /* ARP:  next question / new session */
     FM1_SHED_ACTION_TOGGLE_TYPE     = 1U << 4, /* ENV:  switch exercise type */
-    FM1_SHED_ACTION_CONFIRM         = 1U << 5  /* GLO:  confirm the encoder's chord pick */
+    FM1_SHED_ACTION_CONFIRM         = 1U << 5  /* GLO:  confirm the dial's pick */
 };
 
 /* One poll's worth of input, edge-detected against this module's own
  * last-seen controls -- never app/screen.c's previous_buttons/previous_keys,
  * which Shed's active frames bypass entirely (see shed.h). */
 struct fm1_shed_input {
-    int note;        /* pitch class 0..11 of a newly pressed key, -1 if none */
-    unsigned action;  /* FM1_SHED_ACTION_* bits newly pressed this poll */
-    int chord_delta;  /* PRESETS dial (encoder[6]) detents this poll, for the chord-quality picker */
+    int note;          /* pitch class 0..11 of a newly pressed key, -1 if none */
+    int note_absolute; /* that key's actual MIDI note (F3=53..G5=79); -1 if none.
+                         * #2/#3 need this -- a 9th and a 2nd share a pitch class. */
+    unsigned action;    /* FM1_SHED_ACTION_* bits newly pressed this poll */
+    int dial_delta;     /* PRESETS dial (encoder[6]) detents this poll: menu navigation,
+                          * or the chord/tension/scale picker, depending on shed.c's state */
 };
 
 /* Resets this module's edge-detection state to `controls` (whatever is
@@ -52,16 +55,23 @@ enum fm1_shed_screen {
 };
 
 /* What a screen shows. shed.c fills in only the fields its current screen
- * uses; ui.c reads `question`/`chord_pick` only for FM1_SHED_SCREEN_FEEDBACK
- * (never during FM1_SHED_SCREEN_QUESTION -- the point is to hear it, not
- * see it) and `chord_pick` also live during a QUESTION of type
- * FM1_SHED_EX_CHORD_QUALITY, to preview the encoder's current highlight. */
+ * uses. ui.c reads `question` only for FM1_SHED_SCREEN_FEEDBACK (never
+ * during FM1_SHED_SCREEN_QUESTION -- the point is to hear it, not see it);
+ * `chord_pick`/`tension_pick`/`scale_pick` are shown live during a QUESTION
+ * of the matching type, to preview the dial's current highlight.
+ * `sequence_progress`/`sequence_total` show "n/m" while answering a
+ * sequence question (#6/#8/#9). `menu_index` is MENU's current highlight. */
 struct fm1_shed_ui_state {
     enum fm1_shed_screen screen;
     int key;          /* current tonic, pitch class 0..11; -1 to hide (MENU) */
     enum fm1_shed_exercise_type exercise; /* MENU/QUESTION/FEEDBACK: which one is selected/active */
+    unsigned menu_index;                   /* MENU only */
+    unsigned level;                        /* QUESTION/FEEDBACK: current difficulty, 0-based */
     const struct fm1_shed_question *question; /* FEEDBACK only */
-    enum fm1_shed_chord_type chord_pick;      /* live encoder highlight (QUESTION+CHORD_QUALITY, FEEDBACK) */
+    enum fm1_shed_chord_type chord_pick;      /* live dial highlight: CHORD_QUALITY, ARPEGGIO isn't dial-driven */
+    enum fm1_shed_tension tension_pick;       /* live dial highlight: TENSION */
+    enum fm1_shed_scale_type scale_pick;      /* live dial highlight: SCALE */
+    unsigned sequence_progress, sequence_total; /* QUESTION, sequence types only */
     unsigned asked, session_length;           /* QUESTION/FEEDBACK/SUMMARY */
     unsigned streak, best_streak;
     int correct;      /* FEEDBACK only: 1 right, 0 wrong */
@@ -75,7 +85,7 @@ void fm1_shed_ui_draw(const struct fm1_shed_ui_state *state, uint32_t now);
 
 /* Lights the note-key LEDs (14..40) matching `pitch_class` (0..11) across
  * the whole F3..G5 range, all others off; -1 turns every key LED off. Used
- * to show the correct answer to a degree question on reveal/feedback. */
+ * to show the correct answer to a degree/interval question on reveal. */
 void fm1_shed_ui_show_answer_leds(int pitch_class);
 
 /* Turns off every LED Shed may have lit (buttons and keys, 0..40). Call

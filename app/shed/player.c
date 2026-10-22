@@ -3,10 +3,6 @@
 #include "instrument.h"
 #include <stddef.h>
 
-/* Middle-register bases for absolute MIDI notes: C3 for the rootless piano
- * voicing, C2 for the bass root. */
-enum { SHED_PIANO_BASE = 48, SHED_BASS_BASE = 36 };
-
 /* Factory DX7 programs (app/fm_factory.inc, V15 bank): "PIANO 1" and
  * "BASS 1". Chosen from the factory names only (SHED_SPEC.md section 2's
  * open question on the single best piano/bass voice is still unverified by
@@ -80,7 +76,7 @@ static unsigned rootless_notes(enum fm1_shed_chord_type type, int root_pc, enum 
     }
     root_pc = fm1_shed_pitch_class(root_pc);
     for (i = 0; i < n; i++)
-        out[i] = (uint8_t)(SHED_PIANO_BASE + root_pc + rel[i]);
+        out[i] = (uint8_t)(FM1_SHED_PIANO_REGISTER + root_pc + rel[i]);
     return n;
 }
 
@@ -180,7 +176,7 @@ uint32_t fm1_shed_player_chord(enum fm1_shed_chord_type type, int root, enum fm1
     uint8_t notes[FM1_SHED_CHORD_MAX_NOTES];
     unsigned n = rootless_notes(type, root, variant, notes);
     unsigned i, hold = duration_ms > 60U ? duration_ms - 40U : duration_ms; /* short gap before the next event */
-    uint8_t bass = (uint8_t)(SHED_BASS_BASE + fm1_shed_pitch_class(root));
+    uint8_t bass = (uint8_t)(FM1_SHED_BASS_REGISTER + fm1_shed_pitch_class(root));
     for (i = 0; i < n; i++) {
         note_on(start_ms, SHED_TRACK_PIANO, notes[i], 95);
         note_off(start_ms + hold, SHED_TRACK_PIANO, notes[i]);
@@ -190,13 +186,40 @@ uint32_t fm1_shed_player_chord(enum fm1_shed_chord_type type, int root, enum fm1
     return start_ms + duration_ms;
 }
 
-uint32_t fm1_shed_player_note(int pitch_class, uint32_t start_ms, uint32_t duration_ms)
+uint32_t fm1_shed_player_note_register(int pitch_class, int base_note, uint32_t start_ms, uint32_t duration_ms)
 {
-    uint8_t note = (uint8_t)(SHED_PIANO_BASE + fm1_shed_pitch_class(pitch_class));
+    uint8_t note = (uint8_t)(base_note + fm1_shed_pitch_class(pitch_class));
     unsigned hold = duration_ms > 60U ? duration_ms - 40U : duration_ms;
     note_on(start_ms, SHED_TRACK_PIANO, note, 100);
     note_off(start_ms + hold, SHED_TRACK_PIANO, note);
     return start_ms + duration_ms;
+}
+
+uint32_t fm1_shed_player_note(int pitch_class, uint32_t start_ms, uint32_t duration_ms)
+{
+    return fm1_shed_player_note_register(pitch_class, FM1_SHED_PIANO_REGISTER, start_ms, duration_ms);
+}
+
+uint32_t fm1_shed_player_sequence(const uint8_t *pitch_classes, unsigned count, int base_note,
+    int ascending, uint32_t start_ms, uint32_t note_ms)
+{
+    uint32_t t = start_ms;
+    int last = base_note - 1;
+    unsigned i;
+    if (!pitch_classes)
+        return start_ms;
+    for (i = 0; i < count; i++) {
+        int note = base_note + fm1_shed_pitch_class(pitch_classes[i]);
+        if (ascending)
+            while (note <= last)
+                note += 12;
+        /* pitch_class 0 against base_note `note`: fm1_shed_pitch_class(0) is
+         * 0, so this plays exactly `note` without re-reducing it mod 12
+         * (which would undo the octave bump above). */
+        t = fm1_shed_player_note_register(0, note, t, note_ms);
+        last = note;
+    }
+    return t;
 }
 
 uint32_t fm1_shed_player_cadence(int key, uint32_t start_ms)

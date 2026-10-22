@@ -17,6 +17,12 @@ extern "C" {
 /* Project tracks Shed plays on: 0 piano (comping/melody), 1 bass (roots). */
 enum { SHED_TRACK_PIANO = 0, SHED_TRACK_BASS = 1 };
 
+/* The registers fm1_shed_player_note()/_chord() use, exposed so shed.c can
+ * build on them (e.g. a bass pedal, or a tension a register above a
+ * chord) with fm1_shed_player_note_register()/_sequence() instead of
+ * repeating the same magic numbers. */
+enum { FM1_SHED_PIANO_REGISTER = 48, FM1_SHED_BASS_REGISTER = 36 };
+
 /* Rootless piano voicing variant (SHED_SPEC.md section 3, "tipo A/B
  * (3-5-7-9 / 7-9-3-5)"): A stacks the chord ascending with the root
  * dropped; B drops the root too but moves the top note down an octave to
@@ -57,6 +63,20 @@ uint32_t fm1_shed_player_chord(enum fm1_shed_chord_type type, int root, enum fm1
 /* Schedules a single melodic note (piano, middle register) starting at
  * start_ms, held for most of duration_ms. Returns start_ms + duration_ms. */
 uint32_t fm1_shed_player_note(int pitch_class, uint32_t start_ms, uint32_t duration_ms);
+
+/* Same, but in an explicit register (any MIDI note as the "C" to add the
+ * pitch class to) instead of the fixed middle register -- e.g. a tension
+ * (#5) sitting a register above its chord. */
+uint32_t fm1_shed_player_note_register(int pitch_class, int base_note, uint32_t start_ms, uint32_t duration_ms);
+
+/* Schedules `count` pitch classes (0..11 each) as successive single notes
+ * starting at start_ms, each holding most of note_ms, in `base_note`'s
+ * register. If `ascending`, each note is pushed up an octave as needed to
+ * stay at or above the previous one (#6's arpeggios); otherwise every note
+ * uses the same octave as `base_note` (#9's phrases). Returns the time the
+ * last note's slot ends. */
+uint32_t fm1_shed_player_sequence(const uint8_t *pitch_classes, unsigned count, int base_note,
+    int ascending, uint32_t start_ms, uint32_t note_ms);
 
 #ifdef __cplusplus
 }

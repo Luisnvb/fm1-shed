@@ -30,15 +30,30 @@ enum { BACK = 0x0000, PANEL = 0x18e3, TEXT = 0xef5d, ACCENT = 0x07ff, DIM = 0x73
 static const char *const pitch_names[12] = {
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
 };
-/* ASCII-safe labels (this font has no flat/sharp glyphs): indexed the same
- * as enum fm1_shed_chord_type in theory.h. */
+/* ASCII-safe labels (this font has no flat/sharp glyphs): each indexed the
+ * same as its enum in theory.h/exercises.h. */
 static const char *const chord_labels[FM1_SHED_CHORD_COUNT] = {
     "MAJ7", "6/9", "M7", "M6", "M(MAJ7)", "7", "7SUS4",
     "M7B5", "DIM7", "MAJ7#11", "7B9", "7#11", "7ALT"
 };
-static const char *const exercise_names[FM1_SHED_EX_TYPE_COUNT] = {
-    "GRADO FUNCIONAL", "CALIDAD ACORDE"
+static const char *const tension_labels[FM1_SHED_TENSION_COUNT] = {
+    "9", "B9", "#9", "#11", "13", "B13"
 };
+static const char *const scale_labels[FM1_SHED_SCALE_COUNT] = {
+    "JONICA", "DORICA", "FRIGIA", "LIDIA", "MIXOLIDIA", "EOLICA", "LOCRIA",
+    "MEN.MELODICA", "LID.DOMINANTE", "LOCRIA NAT2", "ALTERADA", "FRIG.DOMINANTE",
+    "DISM. T-S", "DISM. S-T", "TONOS ENTER.", "BEBOP DOM."
+};
+static const char *const exercise_names[FM1_SHED_EX_TYPE_COUNT] = {
+    "GRADO FUNCIONAL", "CALIDAD ACORDE", "INTERVALO MELODICO", "INTERVALO ARMONICO",
+    "TENSION DOMINANTE", "ARPEGIO", "ESCALA / MODO", "MOVIMIENTO BAJO", "DICTADO MELODICO"
+};
+
+static int is_sequence_exercise(enum fm1_shed_exercise_type type)
+{
+    return type == FM1_SHED_EX_ARPEGGIO || type == FM1_SHED_EX_BASS_MOVEMENT ||
+           type == FM1_SHED_EX_MELODIC_DICTATION;
+}
 
 /* Standard public-domain 5x7 glyph shapes (the same ones countless open
  * embedded projects ship, e.g. the classic Sondaar font) -- digits then
@@ -57,13 +72,14 @@ static const uint8_t font[36][5] = {
     {0x3f, 0x40, 0x40, 0x40, 0x3f}, {0x1f, 0x20, 0x40, 0x20, 0x1f}, {0x3f, 0x40, 0x38, 0x40, 0x3f},
     {0x63, 0x14, 0x08, 0x14, 0x63}, {0x07, 0x08, 0x70, 0x08, 0x07}, {0x61, 0x51, 0x49, 0x45, 0x43}
 };
-/* A handful of symbols beyond digits/letters: chord labels and the summary
- * screen need '#', '/', '(', ')', '%', '.', '-', ':'. */
+/* A handful of symbols beyond digits/letters: labels and headers need
+ * '#', '/', '(', ')', '%', '.', '-', ':', '?'. */
 static const uint8_t punctuation[][6] = {
     {'#', 0x14, 0x7f, 0x14, 0x7f, 0x14}, {'/', 0x60, 0x18, 0x06, 0x01, 0},
     {'(', 0, 0x1c, 0x22, 0x41, 0},       {')', 0, 0x41, 0x22, 0x1c, 0},
     {'%', 0x63, 0x13, 0x08, 0x64, 0x63}, {'.', 0, 0x60, 0x60, 0, 0},
-    {'-', 0x08, 0x08, 0x08, 0x08, 0x08}, {':', 0, 0x36, 0x36, 0, 0}
+    {'-', 0x08, 0x08, 0x08, 0x08, 0x08}, {':', 0, 0x36, 0x36, 0, 0},
+    {'?', 0x02, 0x01, 0x51, 0x09, 0x06}
 };
 
 enum { BAND_ROWS = 16, BAND_COUNT = FM1_SCREEN_HEIGHT / BAND_ROWS };
@@ -142,14 +158,16 @@ void fm1_shed_ui_read(const struct fm1_controls *controls, struct fm1_shed_input
     uint32_t key_down;
     unsigned button_down, i;
     input->note = -1;
+    input->note_absolute = -1;
     input->action = 0;
-    input->chord_delta = 0;
+    input->dial_delta = 0;
     if (!controls)
         return;
     key_down = controls->keys & ~previous_keys;
     button_down = controls->buttons & ~previous_buttons;
     for (i = 0; i < KEY_COUNT; i++)
         if (key_down & (1U << i)) {
+            input->note_absolute = (int)(KEY_BASE_NOTE + i);
             input->note = (int)((KEY_BASE_NOTE + i) % 12U);
             break;
         }
@@ -159,7 +177,7 @@ void fm1_shed_ui_read(const struct fm1_controls *controls, struct fm1_shed_input
     if (button_down & BTN_ARP)  input->action |= FM1_SHED_ACTION_NEXT;
     if (button_down & BTN_ENV)  input->action |= FM1_SHED_ACTION_TOGGLE_TYPE;
     if (button_down & BTN_GLO)  input->action |= FM1_SHED_ACTION_CONFIRM;
-    input->chord_delta = controls->encoders[6]; /* PRESETS dial: same "scroll a list" role as elsewhere in the app */
+    input->dial_delta = controls->encoders[6]; /* PRESETS dial: same "scroll a list" role as elsewhere in the app */
     previous_keys = controls->keys;
     previous_buttons = controls->buttons;
 }
@@ -187,6 +205,27 @@ static void format_fraction(char *buf, unsigned a, unsigned b)
     buf[pos] = 0;
 }
 
+/* The three dial-driven exercises (#4, #5, #7) all share this layout: a
+ * one-line prompt, the dial's current pick in big text, then how to use
+ * the dial. */
+static void draw_dial_pick(unsigned band_top, const char *prompt, const char *pick)
+{
+    put_text(band_top, 8, 62, prompt, 1, TEXT, BACK);
+    put_text(band_top, 8, 84, pick, 2, ACCENT, BACK);
+    put_text(band_top, 8, 142, "PRESETS ELEGIR", 1, DIM, BACK);
+    put_text(band_top, 8, 154, "GLO CONFIRMAR", 1, DIM, BACK);
+}
+
+/* The three sequence-answer exercises (#6, #8, #9) share this layout: a
+ * prompt and an "n/m notes played so far" counter. */
+static void draw_sequence_prompt(unsigned band_top, const char *prompt, unsigned progress, unsigned total)
+{
+    char line[16];
+    put_text(band_top, 8, 66, prompt, 1, TEXT, BACK);
+    format_fraction(line, progress, total);
+    put_text(band_top, 8, 88, line, 2, ACCENT, BACK);
+}
+
 /* Draws every element of `state`'s screen that intersects band [band_top,
  * band_top + BAND_ROWS); called once per band, each time redrawing the
  * whole logical screen (no dirty-rect tracking -- Shed's screen changes a
@@ -211,47 +250,94 @@ static void draw_screen(const struct fm1_shed_ui_state *state, unsigned band_top
     switch (state->screen) {
     case FM1_SHED_SCREEN_MENU: {
         unsigned i;
-        put_text(band_top, 8, 38, "EJERCICIO", 1, DIM, BACK);
+        put_text(band_top, 8, 32, "EJERCICIO", 1, DIM, BACK);
         for (i = 0; i < FM1_SHED_EX_TYPE_COUNT; i++) {
-            unsigned y = 58 + i * 20;
-            unsigned selected = state->exercise == (enum fm1_shed_exercise_type)i;
+            unsigned y = 46 + i * 14;
+            unsigned selected = state->menu_index == i;
             put_text(band_top, 8, y, selected ? ">" : " ", 1, ACCENT, BACK);
             put_text(band_top, 20, y, exercise_names[i], 1, selected ? ACCENT : DIM, BACK);
         }
-        put_text(band_top, 8, 120, "ENV", 1, TEXT, BACK);
-        put_text(band_top, 44, 120, "CAMBIAR", 1, DIM, BACK);
-        put_text(band_top, 8, 134, "PLAY", 1, TEXT, BACK);
-        put_text(band_top, 50, 134, "EMPEZAR", 1, DIM, BACK);
+        put_text(band_top, 8, 180, "PRESETS ELEGIR", 1, DIM, BACK);
+        put_text(band_top, 8, 194, "PLAY EMPEZAR", 1, DIM, BACK);
         break;
     }
     case FM1_SHED_SCREEN_QUESTION:
         put_text(band_top, 8, 38, exercise_names[state->exercise], 1, TEXT, BACK);
-        if (state->exercise == FM1_SHED_EX_DEGREE) {
+        switch (state->exercise) {
+        case FM1_SHED_EX_DEGREE:
             put_text(band_top, 8, 70, "ESCUCHA", 2, TEXT, BACK);
             put_text(band_top, 8, 96, "TOCA LA NOTA", 1, DIM, BACK);
-        } else {
-            put_text(band_top, 8, 62, "QUE ACORDE ES?", 1, TEXT, BACK);
-            put_text(band_top, 8, 84, chord_labels[state->chord_pick], 2, ACCENT, BACK);
-            put_text(band_top, 8, 142, "PRESETS ELEGIR", 1, DIM, BACK);
-            put_text(band_top, 8, 154, "GLO CONFIRMAR", 1, DIM, BACK);
+            break;
+        case FM1_SHED_EX_INTERVAL_MELODIC:
+            put_text(band_top, 8, 70, "ESCUCHA", 2, TEXT, BACK);
+            put_text(band_top, 8, 96, "TOCA LA 2A NOTA", 1, DIM, BACK);
+            break;
+        case FM1_SHED_EX_INTERVAL_HARMONIC:
+            put_text(band_top, 8, 70, "ESCUCHA", 2, TEXT, BACK);
+            put_text(band_top, 8, 96, "TOCA LA NOTA ALTA", 1, DIM, BACK);
+            break;
+        case FM1_SHED_EX_CHORD_QUALITY:
+            draw_dial_pick(band_top, "QUE ACORDE ES?", chord_labels[state->chord_pick]);
+            break;
+        case FM1_SHED_EX_TENSION:
+            draw_dial_pick(band_top, "QUE TENSION ES?", tension_labels[state->tension_pick]);
+            break;
+        case FM1_SHED_EX_SCALE:
+            draw_dial_pick(band_top, "QUE ESCALA ES?", scale_labels[state->scale_pick]);
+            break;
+        case FM1_SHED_EX_ARPEGGIO:
+            draw_sequence_prompt(band_top, "TOCA EL ARPEGIO", state->sequence_progress, state->sequence_total);
+            break;
+        case FM1_SHED_EX_BASS_MOVEMENT:
+            draw_sequence_prompt(band_top, "LAS FUNDAMENTALES", state->sequence_progress, state->sequence_total);
+            break;
+        case FM1_SHED_EX_MELODIC_DICTATION:
+            draw_sequence_prompt(band_top, "TOCALA DE VUELTA", state->sequence_progress, state->sequence_total);
+            break;
+        default:
+            break;
         }
         put_text(band_top, 8, 172, "PLAY REPETIR", 1, DIM, BACK);
         put_text(band_top, 8, 184, "SEQ CADENCIA", 1, DIM, BACK);
         put_text(band_top, 8, 196, "EDIT REVELAR", 1, DIM, BACK);
-        put_text(band_top, 8, 208, "ARP SIGUIENTE", 1, DIM, BACK);
+        put_text(band_top, 8, 208, "ARP SIGUIENTE/SALTAR", 1, DIM, BACK);
         put_text(band_top, 8, 226, "HOME+SCL SALIR", 1, DIM, BACK);
         break;
     case FM1_SHED_SCREEN_FEEDBACK:
         put_text(band_top, 8, 38, exercise_names[state->exercise], 1, TEXT, BACK);
         put_text(band_top, 8, 60, state->correct ? "CORRECTO" : "INCORRECTO", 2,
             state->correct ? GREEN : RED, BACK);
-        if (state->question) {
-            strcpy(line, "ERA ");
-            if (state->question->type == FM1_SHED_EX_DEGREE)
-                strcpy(line + 4, pitch_names[fm1_shed_pitch_class(state->question->key + state->question->degree)]);
-            else
-                strcpy(line + 4, chord_labels[state->question->chord]);
+        if (state->question && is_sequence_exercise(state->question->type)) {
+            strcpy(line, "LLEGASTE A ");
+            format_fraction(line + 11, state->sequence_progress, state->sequence_total);
             put_text(band_top, 8, 90, line, 1, TEXT, BACK);
+        } else if (state->question) {
+            const struct fm1_shed_question *q = state->question;
+            strcpy(line, "ERA ");
+            switch (q->type) {
+            case FM1_SHED_EX_DEGREE:
+                strcpy(line + 4, pitch_names[fm1_shed_pitch_class(q->key + q->degree)]);
+                break;
+            case FM1_SHED_EX_INTERVAL_MELODIC:
+            case FM1_SHED_EX_INTERVAL_HARMONIC:
+                strcpy(line + 4,
+                    pitch_names[fm1_shed_pitch_class(fm1_shed_interval_reference_note(q->key) + q->interval)]);
+                break;
+            case FM1_SHED_EX_CHORD_QUALITY:
+                strcpy(line + 4, chord_labels[q->chord]);
+                break;
+            case FM1_SHED_EX_TENSION:
+                strcpy(line + 4, tension_labels[q->tension]);
+                break;
+            case FM1_SHED_EX_SCALE:
+                strcpy(line + 4, scale_labels[q->scale]);
+                break;
+            default:
+                line[4] = 0;
+                break;
+            }
+            if (line[4])
+                put_text(band_top, 8, 90, line, 1, TEXT, BACK);
         }
         strcpy(line, "RACHA ");
         line[append_uint(line, 6, state->streak)] = 0;

@@ -4,13 +4,18 @@
 
 /* Question generator and answer evaluator for Shed (SHED_SPEC.md section 5).
  * Pure C11, no FM-1 SDK dependencies, same as theory.h. Scoring, spaced
- * repetition and adaptive difficulty live in progress.c (later phase); this
- * module only turns (exercise type, key, difficulty level) into a question
- * and checks a played note or a chosen chord type against it.
+ * repetition and adaptive difficulty live in progress.c; this module turns
+ * (exercise type, key, difficulty level[, pool index]) into a question and
+ * checks an answer (a played note, a chosen chord/tension/scale, or a
+ * played-back note sequence) against it.
  *
- * Fase 1 implements exercise #1 (grado funcional) and #4 (calidad de
- * acorde) only, the pair Fase 2 wires into the simulator. Exercises
- * #2, #3, #5..#9 are added in Fase 3. */
+ * All nine exercises from section 5 are implemented. Four have a bounded,
+ * meaningful "pool" of distinct answers (grado, calidad de acorde, tensión,
+ * escala/modo) and so can drive progress.c's spaced repetition by picking
+ * *which* pool index to ask next; the other five (intervalos, arpegio,
+ * movimiento del bajo, dictado melódico) generate from a wide/continuous
+ * space where "repeat the weak item" doesn't apply the same way, and always
+ * draw uniformly from `rng`. */
 
 #include "theory.h"
 
@@ -26,7 +31,7 @@ struct fm1_shed_rng {
 void fm1_shed_rng_seed(struct fm1_shed_rng *rng, uint32_t seed);
 uint32_t fm1_shed_rng_next(struct fm1_shed_rng *rng);
 /* Uniform-ish value in [0, bound). bound must be > 0. The small modulo bias
- * is irrelevant at the pool sizes used here (<= 13). */
+ * is irrelevant at the pool sizes used here (<= 16). */
 unsigned fm1_shed_rng_below(struct fm1_shed_rng *rng, unsigned bound);
 
 /* Key rotation, SHED_SPEC.md principle 4 ("Las 12 tonalidades"). */
@@ -39,32 +44,90 @@ enum fm1_shed_key_mode {
 int fm1_shed_next_key(int previous_key, enum fm1_shed_key_mode mode, struct fm1_shed_rng *rng);
 
 enum fm1_shed_exercise_type {
-    FM1_SHED_EX_DEGREE = 0,      /* #1 grado funcional */
-    FM1_SHED_EX_CHORD_QUALITY,   /* #4 calidad de acorde */
+    FM1_SHED_EX_DEGREE = 0,          /* #1 grado funcional */
+    FM1_SHED_EX_CHORD_QUALITY,       /* #4 calidad de acorde */
+    FM1_SHED_EX_INTERVAL_MELODIC,    /* #2 intervalo melódico */
+    FM1_SHED_EX_INTERVAL_HARMONIC,   /* #3 intervalo armónico */
+    FM1_SHED_EX_TENSION,             /* #5 tensión sobre dominante */
+    FM1_SHED_EX_ARPEGGIO,            /* #6 arpegio */
+    FM1_SHED_EX_SCALE,                /* #7 escala/modo */
+    FM1_SHED_EX_BASS_MOVEMENT,       /* #8 movimiento del bajo */
+    FM1_SHED_EX_MELODIC_DICTATION,   /* #9 dictado melódico */
     FM1_SHED_EX_TYPE_COUNT
 };
 
-/* A generated question. Fields unused by `type` are set to a sentinel
- * (-1 for pitch/degree fields, FM1_SHED_CHORD_COUNT for the chord field)
- * rather than left undefined. */
+/* Tensions offered over a dominant 7th (#5), as semitones above the root
+ * (left un-reduced like theory.h's chord intervals: 13 = ♭9, 20 = ♭13...). */
+enum fm1_shed_tension {
+    FM1_SHED_TENSION_9 = 0,
+    FM1_SHED_TENSION_FLAT9,
+    FM1_SHED_TENSION_SHARP9,
+    FM1_SHED_TENSION_SHARP11,
+    FM1_SHED_TENSION_13,
+    FM1_SHED_TENSION_FLAT13,
+    FM1_SHED_TENSION_COUNT
+};
+int fm1_shed_tension_semitones(enum fm1_shed_tension tension);
+
+/* The reference note #2/#3 build their interval from: middle C's octave,
+ * on the key's tonic (60 + pitch class). Shared with player.c so the
+ * stimulus and the evaluation always agree on what "the reference note"
+ * sounded like. */
+int fm1_shed_interval_reference_note(int key);
+
+#define FM1_SHED_SEQUENCE_MAX 8U /* #9's phrase can be up to 8 notes */
+
+/* A generated question. Fields unused by `type` are left at a sentinel
+ * (-1 for pitch/degree/interval fields, *_COUNT for enum fields, 0 for
+ * sequence_count) rather than left undefined. */
 struct fm1_shed_question {
     enum fm1_shed_exercise_type type;
     int key;                          /* tonic pitch class 0..11 */
-    int degree;                       /* FM1_SHED_EX_DEGREE: semitones above the tonic, 0..11 */
-    enum fm1_shed_chord_type chord;   /* FM1_SHED_EX_CHORD_QUALITY: chord quality to identify */
-    int chord_root;                   /* FM1_SHED_EX_CHORD_QUALITY: pitch class the chord is voiced on */
+    int degree;                       /* EX_DEGREE: semitones above the tonic, 0..11 */
+    enum fm1_shed_chord_type chord;   /* EX_CHORD_QUALITY, EX_ARPEGGIO: the chord */
+    int chord_root;                   /* EX_CHORD_QUALITY, EX_TENSION, EX_ARPEGGIO: pitch class root */
+    int interval;                     /* EX_INTERVAL_MELODIC/HARMONIC: signed semitones from the
+                                        * reference note (60 + key's pitch class); HARMONIC is
+                                        * always positive ("tocar la nota superior") */
+    enum fm1_shed_tension tension;    /* EX_TENSION */
+    enum fm1_shed_scale_type scale;   /* EX_SCALE */
+    /* EX_ARPEGGIO/BASS_MOVEMENT/MELODIC_DICTATION: the answer sequence, as
+     * pitch classes in order (evaluated by pitch class, like #1). For
+     * EX_BASS_MOVEMENT, sequence_chord[i] is the chord quality voiced over
+     * sequence[i] (its root), so the stimulus can play full chords while
+     * the answer is just the roots, per the exercise's own description. */
+    uint8_t sequence[FM1_SHED_SEQUENCE_MAX];
+    uint8_t sequence_chord[FM1_SHED_SEQUENCE_MAX];
+    uint8_t sequence_count;
 };
 
-/* Difficulty bands for #4 (calidad de acorde): level 0 is the plainest
- * tetrads, each higher level adds richer qualities, until every chord type
- * in theory.h is in the pool. */
-unsigned fm1_shed_chord_pool_size(unsigned level);
+/* Difficulty bands: level 0 is the smallest/plainest pool, each higher
+ * level adds more until the whole type is covered. Shared by the plain
+ * generator below and by progress.c's spaced-repetition picker, which
+ * needs the pool size to choose *which* index to ask next. */
+unsigned fm1_shed_degree_pool_size(unsigned level);         /* #1: chromatic degree, 0..11 */
+int fm1_shed_degree_pool_at(unsigned level, unsigned index);
+unsigned fm1_shed_chord_pool_size(unsigned level);           /* #4 */
 enum fm1_shed_chord_type fm1_shed_chord_pool_at(unsigned level, unsigned index);
+unsigned fm1_shed_tension_pool_size(unsigned level);         /* #5 */
+enum fm1_shed_tension fm1_shed_tension_pool_at(unsigned level, unsigned index);
+unsigned fm1_shed_scale_pool_size(unsigned level);           /* #7 */
+enum fm1_shed_scale_type fm1_shed_scale_pool_at(unsigned level, unsigned index);
 
 /* Generates a question of `type` in `key` (any int, normalized to 0..11) at
- * `level`. Returns 1 on success, 0 if `type` isn't implemented yet. */
+ * `level`, drawing uniformly from `rng` throughout. Returns 1 on success, 0
+ * if `type` is out of range. */
 int fm1_shed_question_generate(struct fm1_shed_question *q,
     enum fm1_shed_exercise_type type, int key, unsigned level, struct fm1_shed_rng *rng);
+
+/* Same, but for a pooled type (DEGREE, CHORD_QUALITY, TENSION, SCALE) asks
+ * specifically for `pool_index` (clamped into range) instead of drawing it
+ * from `rng` -- `rng` is still used for any other randomness the question
+ * needs (e.g. a chord's root). For a non-pooled type this is identical to
+ * fm1_shed_question_generate() and `pool_index` is ignored. This is what
+ * lets progress.c's spaced repetition pick which item to ask. */
+int fm1_shed_question_generate_at(struct fm1_shed_question *q, enum fm1_shed_exercise_type type,
+    int key, unsigned level, unsigned pool_index, struct fm1_shed_rng *rng);
 
 /* Evaluates a played note (any MIDI note number or pitch class; only pitch
  * class matters) against a #1 question. Returns 1 correct, 0 incorrect,
@@ -74,6 +137,29 @@ int fm1_shed_question_check_note(const struct fm1_shed_question *q, int played_n
 /* Evaluates a chosen chord type against a #4 question. Returns 1 correct,
  * 0 incorrect, -1 if `q` is not a FM1_SHED_EX_CHORD_QUALITY question. */
 int fm1_shed_question_check_chord(const struct fm1_shed_question *q, enum fm1_shed_chord_type answer);
+
+/* Evaluates a played note against a #2/#3 question. Unlike check_note, this
+ * compares the *exact* note (60 + key's pitch class + interval), not just
+ * its pitch class: telling a 9th from a 2nd needs the octave. Returns 1
+ * correct, 0 incorrect, -1 if `q` is not an interval question. */
+int fm1_shed_question_check_interval_note(const struct fm1_shed_question *q, int played_note);
+
+/* Evaluates a chosen tension against a #5 question. Returns 1 correct, 0
+ * incorrect, -1 if `q` is not a FM1_SHED_EX_TENSION question. */
+int fm1_shed_question_check_tension(const struct fm1_shed_question *q, enum fm1_shed_tension answer);
+
+/* Evaluates a chosen scale against a #7 question. Returns 1 correct, 0
+ * incorrect, -1 if `q` is not a FM1_SHED_EX_SCALE question. */
+int fm1_shed_question_check_scale(const struct fm1_shed_question *q, enum fm1_shed_scale_type answer);
+
+/* Sequence answers (#6, #8, #9): compares `played_note`'s pitch class
+ * against q->sequence[*progress]; on a match advances *progress and
+ * returns 1, otherwise leaves *progress unchanged and returns 0. -1 if `q`
+ * isn't a sequence question or *progress is already past the end. Use
+ * fm1_shed_question_sequence_done() to see whether the whole thing has now
+ * been played correctly. */
+int fm1_shed_question_check_sequence_note(const struct fm1_shed_question *q, unsigned *progress, int played_note);
+int fm1_shed_question_sequence_done(const struct fm1_shed_question *q, unsigned progress);
 
 #ifdef __cplusplus
 }
