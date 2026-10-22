@@ -21,8 +21,10 @@ enum {
     BTN_PLAY = 1U << 12
 };
 
-/* fm1.h: "keys; bits 0..26: F3..G5". F3 is MIDI note 53 (C4 = 60). */
-enum { KEY_COUNT = 27, KEY_BASE_NOTE = 53, LED_KEY_OFFSET = 14 };
+/* KEY_COUNT/KEY_BASE_NOTE are FM1_SHED_KEY_COUNT/FM1_SHED_KEY_BASE_NOTE
+ * (ui.h) under their original local names, to keep this file's diff small;
+ * LED_KEY_OFFSET is purely an LED-addressing detail, so it stays private. */
+enum { KEY_COUNT = FM1_SHED_KEY_COUNT, KEY_BASE_NOTE = FM1_SHED_KEY_BASE_NOTE, LED_KEY_OFFSET = 14 };
 
 enum { BACK = 0x0000, PANEL = 0x18e3, TEXT = 0xef5d, ACCENT = 0x07ff, DIM = 0x738e,
        GREEN = 0x07e0, RED = 0xf800, AMBER = 0xfd20 };
@@ -47,6 +49,9 @@ static const char *const scale_labels[FM1_SHED_SCALE_COUNT] = {
 static const char *const exercise_names[FM1_SHED_EX_TYPE_COUNT] = {
     "GRADO FUNCIONAL", "CALIDAD ACORDE", "INTERVALO MELODICO", "INTERVALO ARMONICO",
     "TENSION DOMINANTE", "ARPEGIO", "ESCALA / MODO", "MOVIMIENTO BAJO", "DICTADO MELODICO"
+};
+static const char *const vamp_view_names[FM1_SHED_VAMP_VIEW_COUNT] = {
+    "ARPEGIO", "ESCALA", "GUIA (3-7)", "NINGUNA"
 };
 
 static int is_sequence_exercise(enum fm1_shed_exercise_type type)
@@ -161,10 +166,14 @@ void fm1_shed_ui_read(const struct fm1_controls *controls, struct fm1_shed_input
     input->note_absolute = -1;
     input->action = 0;
     input->dial_delta = 0;
+    input->keys_pressed = 0;
+    input->keys_released = 0;
     if (!controls)
         return;
     key_down = controls->keys & ~previous_keys;
     button_down = controls->buttons & ~previous_buttons;
+    input->keys_pressed = key_down;
+    input->keys_released = previous_keys & ~controls->keys;
     for (i = 0; i < KEY_COUNT; i++)
         if (key_down & (1U << i)) {
             input->note_absolute = (int)(KEY_BASE_NOTE + i);
@@ -249,15 +258,21 @@ static void draw_screen(const struct fm1_shed_ui_state *state, unsigned band_top
 
     switch (state->screen) {
     case FM1_SHED_SCREEN_MENU: {
+        /* The 9 exercises (section 5) plus vamp mode (section 6) as a
+         * 10th, final entry -- not one more fm1_shed_exercise_type, since
+         * vamp isn't a quiz question/answer the rest of that enum's users
+         * (pools, generate, check_*) would know what to do with. */
+        enum { MENU_COUNT = FM1_SHED_EX_TYPE_COUNT + 1 };
         unsigned i;
-        put_text(band_top, 8, 32, "EJERCICIO", 1, DIM, BACK);
-        for (i = 0; i < FM1_SHED_EX_TYPE_COUNT; i++) {
-            unsigned y = 46 + i * 14;
+        put_text(band_top, 8, 30, "EJERCICIO", 1, DIM, BACK);
+        for (i = 0; i < MENU_COUNT; i++) {
+            unsigned y = 42 + i * 13;
             unsigned selected = state->menu_index == i;
+            const char *label = i < FM1_SHED_EX_TYPE_COUNT ? exercise_names[i] : "MODO VAMP";
             put_text(band_top, 8, y, selected ? ">" : " ", 1, ACCENT, BACK);
-            put_text(band_top, 20, y, exercise_names[i], 1, selected ? ACCENT : DIM, BACK);
+            put_text(band_top, 20, y, label, 1, selected ? ACCENT : DIM, BACK);
         }
-        put_text(band_top, 8, 180, "PRESETS ELEGIR", 1, DIM, BACK);
+        put_text(band_top, 8, 182, "PRESETS ELEGIR", 1, DIM, BACK);
         put_text(band_top, 8, 194, "PLAY EMPEZAR", 1, DIM, BACK);
         break;
     }
@@ -339,9 +354,11 @@ static void draw_screen(const struct fm1_shed_ui_state *state, unsigned band_top
             if (line[4])
                 put_text(band_top, 8, 90, line, 1, TEXT, BACK);
         }
-        strcpy(line, "RACHA ");
-        line[append_uint(line, 6, state->streak)] = 0;
-        put_text(band_top, 8, 112, line, 1, DIM, BACK);
+        if (state->session_length) { /* 0 means this came from vamp's "oído", which doesn't track a streak */
+            strcpy(line, "RACHA ");
+            line[append_uint(line, 6, state->streak)] = 0;
+            put_text(band_top, 8, 112, line, 1, DIM, BACK);
+        }
         put_text(band_top, 8, 150, "ARP SIGUIENTE", 1, DIM, BACK);
         put_text(band_top, 8, 164, "HOME+SCL SALIR", 1, DIM, BACK);
         break;
@@ -363,6 +380,42 @@ static void draw_screen(const struct fm1_shed_ui_state *state, unsigned band_top
         put_text(band_top, 8, 160, "ARP NUEVA SESION", 1, DIM, BACK);
         put_text(band_top, 8, 174, "HOME+SCL SALIR", 1, DIM, BACK);
         break;
+    case FM1_SHED_SCREEN_VAMP: {
+        const struct fm1_shed_vamp *vamp = fm1_shed_vamp(state->vamp_index);
+        unsigned len;
+        put_text(band_top, 8, 38, vamp ? vamp->name : "", 1, TEXT, BACK);
+
+        strcpy(line, "ACTUAL ");
+        len = 7;
+        strcpy(line + len, pitch_names[state->vamp_root % 12]);
+        len += (unsigned)strlen(pitch_names[state->vamp_root % 12]);
+        line[len++] = ' ';
+        strcpy(line + len, chord_labels[state->vamp_chord]);
+        put_text(band_top, 8, 60, line, 1, ACCENT, BACK);
+
+        strcpy(line, "SIGUE ");
+        len = 6;
+        strcpy(line + len, pitch_names[state->vamp_next_root % 12]);
+        len += (unsigned)strlen(pitch_names[state->vamp_next_root % 12]);
+        line[len++] = ' ';
+        strcpy(line + len, chord_labels[state->vamp_next_chord]);
+        put_text(band_top, 8, 76, line, 1, DIM, BACK);
+
+        strcpy(line, "ESCALA ");
+        strcpy(line + 7, scale_labels[state->vamp_scale]);
+        put_text(band_top, 8, 94, line, 1, TEXT, BACK);
+
+        strcpy(line, "VISTA ");
+        strcpy(line + 6, vamp_view_names[state->vamp_view]);
+        put_text(band_top, 8, 112, line, 1, ACCENT, BACK);
+
+        put_text(band_top, 8, 150, "EDIT VISTA", 1, DIM, BACK);
+        put_text(band_top, 8, 162, "SEQ VAMP", 1, DIM, BACK);
+        put_text(band_top, 8, 174, "ARP TONALIDAD", 1, DIM, BACK);
+        put_text(band_top, 8, 186, "GLO OIDO", 1, DIM, BACK);
+        put_text(band_top, 8, 204, "HOME+SCL SALIR", 1, DIM, BACK);
+        break;
+    }
     }
 }
 
@@ -395,4 +448,43 @@ void fm1_shed_ui_clear_leds(void)
     unsigned i;
     for (i = 0; i < 41; i++)
         fm1_led_set(i, 0);
+}
+
+void fm1_shed_ui_show_vamp_leds(enum fm1_shed_vamp_view view, enum fm1_shed_chord_type chord_type,
+    int root, enum fm1_shed_scale_type scale_type, uint32_t now)
+{
+    uint8_t solid[12] = {0}, blink[12] = {0};
+    const struct fm1_shed_chord *c = fm1_shed_chord(chord_type);
+    const struct fm1_shed_scale *s = fm1_shed_scale(scale_type);
+    unsigned phase = (now / 300U) % 2U;
+    unsigned i;
+    if (view != FM1_SHED_VAMP_VIEW_NONE && c) {
+        if (view == FM1_SHED_VAMP_VIEW_GUIDE) {
+            /* The 3rd and 7th (or nearest equivalents): indices 1 and 3 of
+             * every chord in theory.h's table are consistently "the next
+             * third up" and "the note a third above that again", which for
+             * every 4-plus-note quality we have is the guide-tone pair. */
+            if (c->count > 1)
+                solid[fm1_shed_pitch_class(root + c->intervals[1])] = 1;
+            if (c->count > 3)
+                solid[fm1_shed_pitch_class(root + c->intervals[3])] = 1;
+        } else if (view == FM1_SHED_VAMP_VIEW_SCALE) {
+            if (s)
+                for (i = 0; i < s->count; i++)
+                    solid[fm1_shed_pitch_class(root + s->intervals[i])] = 1;
+        } else { /* FM1_SHED_VAMP_VIEW_ARPEGGIO: chord tones solid, the rest of the scale blinking */
+            for (i = 0; i < c->count; i++)
+                solid[fm1_shed_pitch_class(root + c->intervals[i])] = 1;
+            if (s)
+                for (i = 0; i < s->count; i++) {
+                    unsigned pc = fm1_shed_pitch_class(root + s->intervals[i]);
+                    if (!solid[pc])
+                        blink[pc] = 1;
+                }
+        }
+    }
+    for (i = 0; i < KEY_COUNT; i++) {
+        unsigned note = (KEY_BASE_NOTE + i) % 12U;
+        fm1_led_set(LED_KEY_OFFSET + i, solid[note] || (blink[note] && phase));
+    }
 }

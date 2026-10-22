@@ -3,18 +3,20 @@
 #include "instrument.h"
 #include <stddef.h>
 
-/* Factory DX7 programs (app/fm_factory.inc, V15 bank): "PIANO 1" and
- * "BASS 1". Chosen from the factory names only (SHED_SPEC.md section 2's
- * open question on the single best piano/bass voice is still unverified by
- * ear; easy to change here once it is). */
-static const unsigned char claim_track[2] = {SHED_TRACK_PIANO, SHED_TRACK_BASS};
-static const unsigned char claim_program[2] = {0, 34};
+/* Factory DX7 programs (app/fm_factory.inc, V15 bank): "PIANO 1", "BASS 1",
+ * "VOICE 1" (the lead/live-play track, SHED_SPEC.md section 3's "pista C").
+ * Chosen from the factory names only (section 2's open question on the
+ * single best voice per role is still unverified by ear; easy to change
+ * here once it is). */
+enum { SHED_TRACKS = 3 };
+static const unsigned char claim_track[SHED_TRACKS] = {SHED_TRACK_PIANO, SHED_TRACK_BASS, SHED_TRACK_LEAD};
+static const unsigned char claim_program[SHED_TRACKS] = {0, 34, 67};
 
 struct shed_track_backup {
     uint8_t type, program, role, channel, muted;
     struct groove_step cells[GROOVE_STEPS];
 };
-static struct shed_track_backup backup[2];
+static struct shed_track_backup backup[SHED_TRACKS];
 static unsigned claimed;
 static unsigned transport_was_playing;
 static unsigned project_was_clean;
@@ -93,7 +95,7 @@ void fm1_shed_player_claim(void)
         static const uint8_t stop_msg[1] = {0xfc};
         groove_midi_local(stop_msg, 1);
     }
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < SHED_TRACKS; i++) {
         unsigned t = claim_track[i];
         struct groove_view v = {0};
         groove_get_view(t, 0, &v);
@@ -125,7 +127,7 @@ void fm1_shed_player_release(void)
     if (!claimed)
         return;
     fm1_shed_player_silence();
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < SHED_TRACKS; i++) {
         unsigned t = claim_track[i];
         struct groove_view v = {0};
         if (groove_source_type(t) != backup[i].type) {
@@ -230,5 +232,82 @@ uint32_t fm1_shed_player_cadence(int key, uint32_t start_ms)
     t = fm1_shed_player_chord(FM1_SHED_CHORD_MIN7, fm1_shed_pitch_class(key + 2), FM1_SHED_VOICING_A, t, CHORD_MS);
     t = fm1_shed_player_chord(FM1_SHED_CHORD_DOM7, fm1_shed_pitch_class(key + 7), FM1_SHED_VOICING_B, t, CHORD_MS);
     t = fm1_shed_player_chord(FM1_SHED_CHORD_MAJ7, key, FM1_SHED_VOICING_A, t, CHORD_MS);
+    return t;
+}
+
+/* Vamp mode (SHED_SPEC.md section 6): scheduled a step at a time so an
+ * indefinite loop never has to sit fully queued (SHED_EVENT_QUEUE is
+ * sized for one bounded exercise stimulus, not a whole song form). */
+static const struct fm1_shed_vamp_step *vamp_steps;
+static unsigned vamp_count, vamp_index;
+static int vamp_key;
+static uint32_t vamp_next_ms;
+static unsigned vamp_active;
+
+void fm1_shed_player_vamp_start(const struct fm1_shed_vamp_step *steps, unsigned count, int key, uint32_t now)
+{
+    if (!steps || !count) {
+        vamp_active = 0;
+        return;
+    }
+    vamp_steps = steps;
+    vamp_count = count;
+    vamp_key = fm1_shed_pitch_class(key);
+    vamp_index = 0;
+    fm1_shed_player_chord(steps[0].chord, fm1_shed_pitch_class(key + steps[0].offset), FM1_SHED_VOICING_A,
+        now, steps[0].duration_ms);
+    vamp_next_ms = now + steps[0].duration_ms;
+    vamp_active = 1;
+}
+
+void fm1_shed_player_vamp_tick(uint32_t now)
+{
+    const struct fm1_shed_vamp_step *s;
+    unsigned next_index;
+    if (!vamp_active)
+        return;
+    /* A little lead time keeps this robust to irregular poll timing;
+     * fm1_shed_player_chord() just enqueues a future event either way. */
+    if ((int32_t)(now + 250U - vamp_next_ms) < 0)
+        return;
+    next_index = (vamp_index + 1U) % vamp_count;
+    s = &vamp_steps[next_index];
+    fm1_shed_player_chord(s->chord, fm1_shed_pitch_class(vamp_key + s->offset),
+        (next_index & 1U) ? FM1_SHED_VOICING_B : FM1_SHED_VOICING_A, vamp_next_ms, s->duration_ms);
+    vamp_index = next_index;
+    vamp_next_ms += s->duration_ms;
+}
+
+void fm1_shed_player_vamp_stop(void)
+{
+    vamp_active = 0;
+}
+
+unsigned fm1_shed_player_vamp_step_index(unsigned which)
+{
+    return vamp_active && vamp_count ? (which ? (vamp_index + 1U) % vamp_count : vamp_index) : 0;
+}
+
+void fm1_shed_player_lead_note(unsigned midi_note, unsigned on, uint32_t now)
+{
+    if (on)
+        note_on(now, SHED_TRACK_LEAD, midi_note, 100);
+    else
+        note_off(now, SHED_TRACK_LEAD, midi_note);
+}
+
+uint32_t fm1_shed_player_lead_phrase(const uint8_t *pitch_classes, unsigned count, int base_note,
+    uint32_t start_ms, uint32_t note_ms)
+{
+    uint32_t t = start_ms;
+    unsigned i, hold = note_ms > 60U ? note_ms - 40U : note_ms;
+    if (!pitch_classes)
+        return start_ms;
+    for (i = 0; i < count; i++) {
+        uint8_t note = (uint8_t)(base_note + fm1_shed_pitch_class(pitch_classes[i]));
+        note_on(t, SHED_TRACK_LEAD, note, 100);
+        note_off(t + hold, SHED_TRACK_LEAD, note);
+        t += note_ms;
+    }
     return t;
 }

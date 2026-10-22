@@ -7,15 +7,18 @@
  * tracks it plays on (section 3 "No pisar el proyecto del usuario").
  * Depends on the FM-1 SDK; not host-testable. */
 
-#include "theory.h"
+#include "exercises.h" /* struct fm1_shed_vamp[_step], and theory.h transitively */
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* Project tracks Shed plays on: 0 piano (comping/melody), 1 bass (roots). */
-enum { SHED_TRACK_PIANO = 0, SHED_TRACK_BASS = 1 };
+/* Project tracks Shed plays on: 0 piano (comping), 1 bass (roots), 2 lead
+ * (the user's live playing in vamp mode -- SHED_SPEC.md section 3's
+ * optional "pista C", claimed unconditionally for architectural simplicity
+ * even though exercises 1-9 never schedule anything on it). */
+enum { SHED_TRACK_PIANO = 0, SHED_TRACK_BASS = 1, SHED_TRACK_LEAD = 2 };
 
 /* The registers fm1_shed_player_note()/_chord() use, exposed so shed.c can
  * build on them (e.g. a bass pedal, or a tension a register above a
@@ -30,15 +33,16 @@ enum { FM1_SHED_PIANO_REGISTER = 48, FM1_SHED_BASS_REGISTER = 36 };
  * instead of jumping an octave chord to chord. */
 enum fm1_shed_voicing { FM1_SHED_VOICING_A = 0, FM1_SHED_VOICING_B };
 
-/* Saves track 0/1's source, voice, role, input channel, mute state and
- * sequencer pattern, stops transport if it was running, and sets both
- * tracks up for Shed (DX7 "PIANO 1" / "BASS 1", input channel matching
+/* Saves tracks 0/1/2's source, voice, role, input channel, mute state and
+ * sequencer pattern, stops transport if it was running, and sets all three
+ * up for Shed (DX7 "PIANO 1" / "BASS 1" / "VOICE 1", input channel matching
  * groove_channel(), role NORMAL, unmuted). A second call before release()
  * is a no-op. */
 void fm1_shed_player_claim(void);
 
-/* Silences both tracks and restores exactly what claim() saved, including
- * pattern cells a source change may have cleared. No-op if never claimed. */
+/* Silences all three tracks and restores exactly what claim() saved,
+ * including pattern cells a source change may have cleared. No-op if never
+ * claimed. */
 void fm1_shed_player_release(void);
 
 /* Empties the event queue and sends an immediate panic (all notes off) so
@@ -77,6 +81,34 @@ uint32_t fm1_shed_player_note_register(int pitch_class, int base_note, uint32_t 
  * last note's slot ends. */
 uint32_t fm1_shed_player_sequence(const uint8_t *pitch_classes, unsigned count, int base_note,
     int ascending, uint32_t start_ms, uint32_t note_ms);
+
+/* Vamp mode (SHED_SPEC.md section 6): loops `steps`/`count` (one
+ * fm1_shed_vamp's worth) rooted at `key`, alternating A/B rootless
+ * voicings. Schedules only the current and next chord at a time -- an
+ * unbounded loop can't be queued up front like the bounded exercises
+ * above -- so call fm1_shed_player_vamp_tick() every poll to keep the next
+ * step queued just before it's due. */
+void fm1_shed_player_vamp_start(const struct fm1_shed_vamp_step *steps, unsigned count, int key, uint32_t now);
+void fm1_shed_player_vamp_tick(uint32_t now);
+void fm1_shed_player_vamp_stop(void);
+/* `which` 0 = the chord currently sounding, 1 = the one coming up next: the
+ * raw index into the active fm1_shed_vamp's own steps[], so a caller can
+ * read steps[index].chord/context/offset itself (e.g. shed.c, which
+ * already knows which vamp and key are playing) -- for its suggested
+ * scale, not just the chord. 0 if no vamp is running. */
+unsigned fm1_shed_player_vamp_step_index(unsigned which);
+
+/* Immediate (not scheduled-ahead) note on/off on the lead track, for the
+ * user's own live playing in vamp mode -- as soon as a key goes down/up,
+ * not queued for a future time like every other player.c call. */
+void fm1_shed_player_lead_note(unsigned midi_note, unsigned on, uint32_t now);
+
+/* Like fm1_shed_player_sequence() with a fixed register and no ascending
+ * option, but on the lead track instead of the piano: vamp mode's "oído"
+ * demonstration phrase plays over the still-running vamp (comping/bass)
+ * instead of interrupting it. Returns the time the last note's slot ends. */
+uint32_t fm1_shed_player_lead_phrase(const uint8_t *pitch_classes, unsigned count, int base_note,
+    uint32_t start_ms, uint32_t note_ms);
 
 #ifdef __cplusplus
 }

@@ -486,6 +486,35 @@ static void test_generate_at_pooled(void)
     CHECK(q.sequence_count >= 3);
 }
 
+static void test_vamp(void)
+{
+    unsigned v;
+    CHECK(fm1_shed_vamp(FM1_SHED_VAMP_COUNT) == NULL);
+    CHECK(fm1_shed_vamp(999) == NULL);
+    for (v = 0; v < FM1_SHED_VAMP_COUNT; v++) {
+        const struct fm1_shed_vamp *vamp = fm1_shed_vamp(v);
+        unsigned i;
+        CHECK(vamp != NULL);
+        if (!vamp)
+            continue;
+        CHECK(vamp->name != NULL && vamp->name[0] != 0);
+        CHECK(vamp->count >= 1 && vamp->count <= 12); /* the blues vamp is the longest, 12 bars */
+        for (i = 0; i < vamp->count; i++) {
+            const struct fm1_shed_vamp_step *s = &vamp->steps[i];
+            /* Every step's (chord, context) must resolve to a real scale --
+             * this is the check that would have caught a typo pairing a
+             * chord with a context theory.c has no row for. */
+            const struct fm1_shed_chord_scale *row = fm1_shed_chord_scale_lookup(s->chord, s->context);
+            CHECK(row != NULL);
+            if (row)
+                CHECK(fm1_shed_scale(row->scale) != NULL);
+            CHECK(fm1_shed_chord(s->chord) != NULL);
+            CHECK(s->offset > -12 && s->offset < 12);
+            CHECK(s->duration_ms >= 500 && s->duration_ms <= 3000);
+        }
+    }
+}
+
 void test_exercises(void)
 {
     test_rng();
@@ -505,6 +534,7 @@ void test_exercises(void)
     test_question_melodic_dictation();
     test_sequence_answer();
     test_generate_at_pooled();
+    test_vamp();
     test_generate_rejects_unimplemented_type();
     test_check_note();
     test_check_chord();

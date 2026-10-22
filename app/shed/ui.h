@@ -14,16 +14,23 @@
 extern "C" {
 #endif
 
-/* Panel action buttons while a Shed screen is up (SHED_SPEC.md section 5
- * "Controles comunes durante un ejercicio"). Bits set in
- * fm1_shed_input.action were newly pressed this poll. */
+/* fm1.h: "keys; bits 0..26: F3..G5". Public so shed.c can turn
+ * fm1_shed_input's keys_pressed/keys_released bitmasks (vamp mode's
+ * polyphonic live playing) into actual MIDI notes itself. */
+enum { FM1_SHED_KEY_COUNT = 27, FM1_SHED_KEY_BASE_NOTE = 53 };
+
+/* Panel action buttons while a Shed screen is up. Bits set in
+ * fm1_shed_input.action were newly pressed this poll. Meaning depends on
+ * shed.c's current state: during an exercise (section 5 "Controles
+ * comunes durante un ejercicio") vs. vamp mode (section 6) the same
+ * physical button does a related but different thing, noted below. */
 enum fm1_shed_action {
     FM1_SHED_ACTION_REPEAT_STIMULUS = 1U << 0, /* PLAY: repeat the question's stimulus */
-    FM1_SHED_ACTION_REPEAT_CADENCE  = 1U << 1, /* SEQ:  repeat the cadence */
-    FM1_SHED_ACTION_REVEAL          = 1U << 2, /* EDIT: reveal the answer */
-    FM1_SHED_ACTION_NEXT            = 1U << 3, /* ARP:  next question / new session */
+    FM1_SHED_ACTION_REPEAT_CADENCE  = 1U << 1, /* SEQ:  repeat the cadence / vamp: next vamp */
+    FM1_SHED_ACTION_REVEAL          = 1U << 2, /* EDIT: reveal the answer / vamp: cycle the LED view */
+    FM1_SHED_ACTION_NEXT            = 1U << 3, /* ARP:  next question / vamp: next key */
     FM1_SHED_ACTION_TOGGLE_TYPE     = 1U << 4, /* ENV:  switch exercise type */
-    FM1_SHED_ACTION_CONFIRM         = 1U << 5  /* GLO:  confirm the dial's pick */
+    FM1_SHED_ACTION_CONFIRM         = 1U << 5  /* GLO:  confirm the dial's pick / vamp: hear a phrase (oído) */
 };
 
 /* One poll's worth of input, edge-detected against this module's own
@@ -36,6 +43,11 @@ struct fm1_shed_input {
     unsigned action;    /* FM1_SHED_ACTION_* bits newly pressed this poll */
     int dial_delta;     /* PRESETS dial (encoder[6]) detents this poll: menu navigation,
                           * or the chord/tension/scale picker, depending on shed.c's state */
+    /* Vamp mode's live playing is polyphonic (SHED_SPEC.md section 6: the
+     * user improvises over the loop), unlike every exercise's one-note-at-
+     * a-time `note` above -- bit i is key i (0..26, F3..G5), set when that
+     * key was newly pressed/released this poll. */
+    uint32_t keys_pressed, keys_released;
 };
 
 /* Resets this module's edge-detection state to `controls` (whatever is
@@ -51,7 +63,20 @@ enum fm1_shed_screen {
     FM1_SHED_SCREEN_MENU,
     FM1_SHED_SCREEN_QUESTION,
     FM1_SHED_SCREEN_FEEDBACK,
-    FM1_SHED_SCREEN_SUMMARY
+    FM1_SHED_SCREEN_SUMMARY,
+    FM1_SHED_SCREEN_VAMP /* section 6: free play over a loop. The "oído" variant
+                           * reuses QUESTION/FEEDBACK with exercise forced to
+                           * TENSION or SCALE -- it's the same question either way. */
+};
+
+/* Vamp mode's LED guidance (section 6: "encendido fijo = notas del acorde;
+ * parpadeo = tensiones disponibles", plus the "Vistas" list). */
+enum fm1_shed_vamp_view {
+    FM1_SHED_VAMP_VIEW_ARPEGGIO = 0, /* chord tones solid, the rest of the suggested scale blinking */
+    FM1_SHED_VAMP_VIEW_SCALE,        /* the whole suggested scale, solid */
+    FM1_SHED_VAMP_VIEW_GUIDE,        /* only the 3rd and 7th, solid */
+    FM1_SHED_VAMP_VIEW_NONE,         /* nothing lit -- just listen */
+    FM1_SHED_VAMP_VIEW_COUNT
 };
 
 /* What a screen shows. shed.c fills in only the fields its current screen
@@ -72,10 +97,17 @@ struct fm1_shed_ui_state {
     enum fm1_shed_tension tension_pick;       /* live dial highlight: TENSION */
     enum fm1_shed_scale_type scale_pick;      /* live dial highlight: SCALE */
     unsigned sequence_progress, sequence_total; /* QUESTION, sequence types only */
-    unsigned asked, session_length;           /* QUESTION/FEEDBACK/SUMMARY */
+    unsigned asked, session_length;           /* QUESTION/FEEDBACK/SUMMARY; session_length 0 hides "n/m" (vamp's oído) */
     unsigned streak, best_streak;
     int correct;      /* FEEDBACK only: 1 right, 0 wrong */
     unsigned percent; /* SUMMARY only */
+
+    /* VAMP only. */
+    unsigned vamp_index;                 /* which of fm1_shed_vamp(0..FM1_SHED_VAMP_COUNT-1) */
+    enum fm1_shed_chord_type vamp_chord, vamp_next_chord;
+    int vamp_root, vamp_next_root;       /* pitch class 0..11 */
+    enum fm1_shed_scale_type vamp_scale; /* suggested over vamp_chord */
+    enum fm1_shed_vamp_view vamp_view;
 };
 
 /* Draws the screen for `state`. Throttles its own redraws against `now`
@@ -91,6 +123,12 @@ void fm1_shed_ui_show_answer_leds(int pitch_class);
 /* Turns off every LED Shed may have lit (buttons and keys, 0..40). Call
  * once from shed_exit(), after fm1_shed_player_release(). */
 void fm1_shed_ui_clear_leds(void);
+
+/* Sets the note-key LEDs for vamp mode's current chord/scale/view (section
+ * 6). Blinking tensions use `now` for their phase, so call every poll
+ * while in FM1_SHED_SCREEN_VAMP, not just when something changes. */
+void fm1_shed_ui_show_vamp_leds(enum fm1_shed_vamp_view view, enum fm1_shed_chord_type chord,
+    int root, enum fm1_shed_scale_type scale, uint32_t now);
 
 #ifdef __cplusplus
 }

@@ -375,3 +375,50 @@ int fm1_shed_question_sequence_done(const struct fm1_shed_question *q, unsigned 
 {
     return q != NULL && progress >= q->sequence_count;
 }
+
+/* Vamp mode (SHED_SPEC.md section 6). Each step's `context` picks the
+ * chord's suggested scale via fm1_shed_chord_scale_lookup() -- CONTEXT_NONE
+ * where the chord quality only has one sensible scale anyway (m7b5, alt,
+ * m6), CONTEXT_II for a modal/Dorian-feeling minor seventh (including the
+ * one-chord modal vamp, which isn't "functioning" as a ii of anything but
+ * still wants Dorian), CONTEXT_V_MAJOR for a plain dominant (including
+ * secondary dominants and blues dominants, which don't get their own row
+ * in theory.h's table -- Mixolydian is the common, practical default). */
+static const struct fm1_shed_vamp_step vamp_modal_dm7[] = {
+    {FM1_SHED_CHORD_MIN7, FM1_SHED_CONTEXT_II, 0, 2400},
+};
+static const struct fm1_shed_vamp_step vamp_dm7_g7[] = {
+    {FM1_SHED_CHORD_MIN7, FM1_SHED_CONTEXT_II, 0, 1600},
+    {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 5, 1600},
+};
+static const struct fm1_shed_vamp_step vamp_ii_v_i_minor[] = {
+    {FM1_SHED_CHORD_MIN7_FLAT5, FM1_SHED_CONTEXT_NONE, 2, 1100},
+    {FM1_SHED_CHORD_DOM7_ALT, FM1_SHED_CONTEXT_NONE, 7, 1100},
+    {FM1_SHED_CHORD_MIN6, FM1_SHED_CONTEXT_NONE, 0, 1100},
+};
+static const struct fm1_shed_vamp_step vamp_turnaround[] = { /* Cmaj7-A7-Dm7-G7: I-VI7-ii-V */
+    {FM1_SHED_CHORD_MAJ7, FM1_SHED_CONTEXT_I, 0, 900},
+    {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 9, 900},
+    {FM1_SHED_CHORD_MIN7, FM1_SHED_CONTEXT_II, 2, 900},
+    {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 7, 900},
+};
+static const struct fm1_shed_vamp_step vamp_blues_f[] = { /* 12-bar jazz blues, one comp per bar */
+    {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 0, 900}, {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 5, 900},
+    {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 0, 900}, {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 0, 900},
+    {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 5, 900}, {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 5, 900},
+    {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 0, 900}, {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 0, 900},
+    {FM1_SHED_CHORD_MIN7, FM1_SHED_CONTEXT_II, 2, 900},      {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 7, 900},
+    {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 0, 900}, {FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, 7, 900},
+};
+static const struct fm1_shed_vamp vamps[FM1_SHED_VAMP_COUNT] = {
+    {"MODAL Dm7", vamp_modal_dm7, sizeof vamp_modal_dm7 / sizeof vamp_modal_dm7[0]},
+    {"Dm7 - G7", vamp_dm7_g7, sizeof vamp_dm7_g7 / sizeof vamp_dm7_g7[0]},
+    {"II-V-I MENOR", vamp_ii_v_i_minor, sizeof vamp_ii_v_i_minor / sizeof vamp_ii_v_i_minor[0]},
+    {"CMAJ7-A7-DM7-G7", vamp_turnaround, sizeof vamp_turnaround / sizeof vamp_turnaround[0]},
+    {"BLUES EN F", vamp_blues_f, sizeof vamp_blues_f / sizeof vamp_blues_f[0]},
+};
+
+const struct fm1_shed_vamp *fm1_shed_vamp(unsigned index)
+{
+    return index < FM1_SHED_VAMP_COUNT ? &vamps[index] : NULL;
+}

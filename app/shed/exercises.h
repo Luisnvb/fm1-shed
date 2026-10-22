@@ -161,6 +161,25 @@ int fm1_shed_question_check_scale(const struct fm1_shed_question *q, enum fm1_sh
 int fm1_shed_question_check_sequence_note(const struct fm1_shed_question *q, unsigned *progress, int played_note);
 int fm1_shed_question_sequence_done(const struct fm1_shed_question *q, unsigned progress);
 
+/* Vamp mode (SHED_SPEC.md section 6): a looping progression the device
+ * comps/walks while the user improvises. Pure data plus the lookup; the
+ * actual looping playback (player.c) and LED/screen display (ui.c) are not
+ * host-testable, but this table and the chord each step implies are. */
+struct fm1_shed_vamp_step {
+    enum fm1_shed_chord_type chord;
+    enum fm1_shed_context context; /* for fm1_shed_chord_scale_lookup(): which scale this step suggests */
+    int8_t offset;                 /* semitones from the vamp's key */
+    uint16_t duration_ms;
+};
+struct fm1_shed_vamp {
+    const char *name;
+    const struct fm1_shed_vamp_step *steps;
+    unsigned char count;
+};
+#define FM1_SHED_VAMP_COUNT 5U
+/* NULL if index is out of range. */
+const struct fm1_shed_vamp *fm1_shed_vamp(unsigned index);
+
 #ifdef __cplusplus
 }
 #endif
