@@ -2,7 +2,7 @@
 
 [![License: GPLv3 with linking exception](https://img.shields.io/badge/license-GPLv3%20%2B%20linking%20exception-blue.svg)](LICENSE.md)
 
-English · [Español](README.es.md)
+English · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
 A jazz ear-training mode for the [M-VAVE FM-1](https://www.m-vave.com/products/fm-1) synthesizer, built on top of [FM1 Open](https://github.com/m-vave/fm1_open).
 

@@ -1,6 +1,27 @@
+# Shed
+
+[![许可证：GPLv3 附带链接例外](https://img.shields.io/badge/license-GPLv3%20%2B%20linking%20exception-blue.svg)](LICENSE.md)
+
+[English](README.md) · [Español](README.es.md) · 简体中文
+
+一个为 [M-VAVE FM-1](https://www.m-vave.com/products/fm-1) 合成器打造的爵士乐练耳模式，基于 [FM1 Open](https://github.com/m-vave/fm1_open) 构建。
+
+按 **HOME+SCL** 进入 Shed，在设备上直接练习功能音级、和弦性质、旋律与和声音程、属和弦张力音、琶音、音阶／调式、低音走向和旋律听写——无需 App，无需电脑。练习会根据你的连对连错自动调整难度，并使用间隔重复把你常错的内容重新带回来。**Vamp 模式**会循环播放一段和弦进行（贝斯＋伴奏）供你即兴演奏，配合按键 LED 提示，并有一个"听辨"环节考你当前正在播放的内容。
+
+完整设计请参阅 [`SHED_SPEC.md`](SHED_SPEC.md)（英文）：理论核心、练习体系、Vamp 模式、设备屏幕以及分阶段开发记录。
+
+```
+.\tools\Build-Web.ps1 -LocalPreview   # 编译浏览器模拟器
+.\tools\Test-Shed.ps1                 # 运行 Shed 的测试套件
+```
+
+Shed 的全部代码都位于 [`app/shed/`](app/shed/) 目录下，只在 `app/screen.c` 中加入了 2 行接入代码；不会修改固件的其他部分。以下是本项目所基于的 FM1 Open 原版 README。
+
+---
+
 # FM1 Open V14
 
-[English](README.md) · 简体中文
+[English](README.md) · [Español](README.es.md) · 简体中文
 
 8 轨、8 槽采样、16 套 FX DEMO，已含 SDK（二进制库与接口头文件）。
 

@@ -2,7 +2,7 @@
 
 [![Licencia: GPLv3 con excepción de enlazado](https://img.shields.io/badge/license-GPLv3%20%2B%20linking%20exception-blue.svg)](LICENSE.md)
 
-[English](README.md) · Español
+[English](README.md) · Español · [简体中文](README.zh-CN.md)
 
 Un modo de entrenamiento auditivo de jazz para el sintetizador [M-VAVE FM-1](https://www.m-vave.com/products/fm-1), construido sobre [FM1 Open](https://github.com/m-vave/fm1_open).
 
@@ -21,7 +21,7 @@ Shed vive por completo bajo [`app/shed/`](app/shed/), con un gancho de 2 líneas
 
 # FM1 Open V14
 
-English · [简体中文](README.zh-CN.md)
+[English](README.md) · Español · [简体中文](README.zh-CN.md)
 
 8 pistas, 8 ranuras de muestras, 16 demos de FX; SDK binario incluido.
 
