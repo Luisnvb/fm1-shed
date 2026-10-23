@@ -2,7 +2,7 @@
 #include "theory.h"
 #include <stddef.h>
 
-/* Chord table, SHED_SPEC.md section 4 "Tipos de acorde". Indexed by
+/* Chord table, SHED_SPEC.md section 4 "Chord types". Indexed by
  * fm1_shed_chord_type so a bad enum value can never desync from its row. */
 static const struct fm1_shed_chord chords[FM1_SHED_CHORD_COUNT] = {
     [FM1_SHED_CHORD_MAJ7]         = { "maj7",     {0, 4, 7, 11},         4 },
@@ -21,27 +21,27 @@ static const struct fm1_shed_chord chords[FM1_SHED_CHORD_COUNT] = {
     [FM1_SHED_CHORD_DOM7_ALT]     = { "7alt",     {0, 4, 10, 13, 15, 20}, 6 },
 };
 
-/* Scale table, SHED_SPEC.md section 4 "Escalas (intervalos)". */
+/* Scale table, SHED_SPEC.md section 4 "Scales (intervals)". */
 static const struct fm1_shed_scale scales[FM1_SHED_SCALE_COUNT] = {
-    [FM1_SHED_SCALE_IONIAN]            = { "Jónica",                    {0, 2, 4, 5, 7, 9, 11},     7 },
-    [FM1_SHED_SCALE_DORIAN]            = { "Dórica",                    {0, 2, 3, 5, 7, 9, 10},     7 },
-    [FM1_SHED_SCALE_PHRYGIAN]          = { "Frigia",                    {0, 1, 3, 5, 7, 8, 10},     7 },
-    [FM1_SHED_SCALE_LYDIAN]            = { "Lidia",                     {0, 2, 4, 6, 7, 9, 11},     7 },
-    [FM1_SHED_SCALE_MIXOLYDIAN]        = { "Mixolidia",                 {0, 2, 4, 5, 7, 9, 10},     7 },
-    [FM1_SHED_SCALE_AEOLIAN]           = { "Eólica",                    {0, 2, 3, 5, 7, 8, 10},     7 },
-    [FM1_SHED_SCALE_LOCRIAN]           = { "Locria",                    {0, 1, 3, 5, 6, 8, 10},     7 },
-    [FM1_SHED_SCALE_MELODIC_MINOR]     = { "Menor melódica",            {0, 2, 3, 5, 7, 9, 11},     7 },
-    [FM1_SHED_SCALE_LYDIAN_DOMINANT]   = { "Lidia dominante",           {0, 2, 4, 6, 7, 9, 10},     7 },
-    [FM1_SHED_SCALE_LOCRIAN_NAT2]      = { "Locria ♮2",                 {0, 2, 3, 5, 6, 8, 10},     7 },
-    [FM1_SHED_SCALE_ALTERED]           = { "Alterada",                  {0, 1, 3, 4, 6, 8, 10},     7 },
-    [FM1_SHED_SCALE_DIM_WHOLE_HALF]    = { "Disminuida tono-semitono",  {0, 2, 3, 5, 6, 8, 9, 11},  8 },
-    [FM1_SHED_SCALE_DIM_HALF_WHOLE]    = { "Disminuida semitono-tono",  {0, 1, 3, 4, 6, 7, 9, 10},  8 },
-    [FM1_SHED_SCALE_WHOLE_TONE]        = { "Tonos enteros",             {0, 2, 4, 6, 8, 10},        6 },
-    [FM1_SHED_SCALE_BEBOP_DOMINANT]    = { "Bebop dominante",           {0, 2, 4, 5, 7, 9, 10, 11}, 8 },
-    [FM1_SHED_SCALE_PHRYGIAN_DOMINANT] = { "Frigia dominante",          {0, 1, 4, 5, 7, 8, 10},     7 },
+    [FM1_SHED_SCALE_IONIAN]            = { "Ionian",                    {0, 2, 4, 5, 7, 9, 11},     7 },
+    [FM1_SHED_SCALE_DORIAN]            = { "Dorian",                    {0, 2, 3, 5, 7, 9, 10},     7 },
+    [FM1_SHED_SCALE_PHRYGIAN]          = { "Phrygian",                  {0, 1, 3, 5, 7, 8, 10},     7 },
+    [FM1_SHED_SCALE_LYDIAN]            = { "Lydian",                    {0, 2, 4, 6, 7, 9, 11},     7 },
+    [FM1_SHED_SCALE_MIXOLYDIAN]        = { "Mixolydian",                {0, 2, 4, 5, 7, 9, 10},     7 },
+    [FM1_SHED_SCALE_AEOLIAN]           = { "Aeolian",                   {0, 2, 3, 5, 7, 8, 10},     7 },
+    [FM1_SHED_SCALE_LOCRIAN]           = { "Locrian",                   {0, 1, 3, 5, 6, 8, 10},     7 },
+    [FM1_SHED_SCALE_MELODIC_MINOR]     = { "Melodic minor",             {0, 2, 3, 5, 7, 9, 11},     7 },
+    [FM1_SHED_SCALE_LYDIAN_DOMINANT]   = { "Lydian dominant",           {0, 2, 4, 6, 7, 9, 10},     7 },
+    [FM1_SHED_SCALE_LOCRIAN_NAT2]      = { "Locrian ♮2",                {0, 2, 3, 5, 6, 8, 10},     7 },
+    [FM1_SHED_SCALE_ALTERED]           = { "Altered",                   {0, 1, 3, 4, 6, 8, 10},     7 },
+    [FM1_SHED_SCALE_DIM_WHOLE_HALF]    = { "Whole-half diminished",     {0, 2, 3, 5, 6, 8, 9, 11},  8 },
+    [FM1_SHED_SCALE_DIM_HALF_WHOLE]    = { "Half-whole diminished",     {0, 1, 3, 4, 6, 7, 9, 10},  8 },
+    [FM1_SHED_SCALE_WHOLE_TONE]        = { "Whole tone",                {0, 2, 4, 6, 8, 10},        6 },
+    [FM1_SHED_SCALE_BEBOP_DOMINANT]    = { "Bebop dominant",            {0, 2, 4, 5, 7, 9, 10, 11}, 8 },
+    [FM1_SHED_SCALE_PHRYGIAN_DOMINANT] = { "Phrygian dominant",         {0, 1, 4, 5, 7, 8, 10},     7 },
 };
 
-/* Chord -> scale table, SHED_SPEC.md section 4 "Acorde -> escala".
+/* Chord -> scale table, SHED_SPEC.md section 4 "Chord -> scale".
  * 0xff marks an unused `avoid` slot. */
 static const struct fm1_shed_chord_scale chord_scale[FM1_SHED_CHORD_SCALE_ROWS] = {
     /* maj7 (I) */
@@ -59,7 +59,7 @@ static const struct fm1_shed_chord_scale chord_scale[FM1_SHED_CHORD_SCALE_ROWS] 
     /* m7 (VI): avoid ♭6 */
     { FM1_SHED_CHORD_MIN7, FM1_SHED_CONTEXT_VI, FM1_SHED_SCALE_AEOLIAN,
       FM1_SHED_SCALE_COUNT, {8, 0xff} },
-    /* 7 (V -> mayor): avoid 4 */
+    /* 7 (V -> major): avoid 4 */
     { FM1_SHED_CHORD_DOM7, FM1_SHED_CONTEXT_V_MAJOR, FM1_SHED_SCALE_MIXOLYDIAN,
       FM1_SHED_SCALE_BEBOP_DOMINANT, {5, 0xff} },
     /* 7♯11 */
@@ -68,10 +68,10 @@ static const struct fm1_shed_chord_scale chord_scale[FM1_SHED_CHORD_SCALE_ROWS] 
     /* 7alt */
     { FM1_SHED_CHORD_DOM7_ALT, FM1_SHED_CONTEXT_NONE, FM1_SHED_SCALE_ALTERED,
       FM1_SHED_SCALE_COUNT, {0xff, 0xff} },
-    /* 7♭9 (V -> menor); alt = disminuida semitono-tono */
+    /* 7♭9 (V -> minor); alt = half-whole diminished */
     { FM1_SHED_CHORD_DOM7_FLAT9, FM1_SHED_CONTEXT_V_MINOR, FM1_SHED_SCALE_PHRYGIAN_DOMINANT,
       FM1_SHED_SCALE_DIM_HALF_WHOLE, {0xff, 0xff} },
-    /* m7♭5: avoid ♭2 (en locria) */
+    /* m7♭5: avoid ♭2 (in Locrian) */
     { FM1_SHED_CHORD_MIN7_FLAT5, FM1_SHED_CONTEXT_NONE, FM1_SHED_SCALE_LOCRIAN,
       FM1_SHED_SCALE_LOCRIAN_NAT2, {1, 0xff} },
     /* dim7 */

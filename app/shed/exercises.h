@@ -10,10 +10,10 @@
  * played-back note sequence) against it.
  *
  * All nine exercises from section 5 are implemented. Four have a bounded,
- * meaningful "pool" of distinct answers (grado, calidad de acorde, tensión,
- * escala/modo) and so can drive progress.c's spaced repetition by picking
- * *which* pool index to ask next; the other five (intervalos, arpegio,
- * movimiento del bajo, dictado melódico) generate from a wide/continuous
+ * meaningful "pool" of distinct answers (degree, chord quality, tension,
+ * scale/mode) and so can drive progress.c's spaced repetition by picking
+ * *which* pool index to ask next; the other five (intervals, arpeggio,
+ * bass movement, melodic dictation) generate from a wide/continuous
  * space where "repeat the weak item" doesn't apply the same way, and always
  * draw uniformly from `rng`. */
 
@@ -34,7 +34,7 @@ uint32_t fm1_shed_rng_next(struct fm1_shed_rng *rng);
  * is irrelevant at the pool sizes used here (<= 16). */
 unsigned fm1_shed_rng_below(struct fm1_shed_rng *rng, unsigned bound);
 
-/* Key rotation, SHED_SPEC.md principle 4 ("Las 12 tonalidades"). */
+/* Key rotation, SHED_SPEC.md principle 4 ("All 12 keys"). */
 enum fm1_shed_key_mode {
     FM1_SHED_KEY_FIXED = 0,
     FM1_SHED_KEY_FOURTHS,  /* ascend by a perfect fourth (circle of fourths) */
@@ -44,15 +44,15 @@ enum fm1_shed_key_mode {
 int fm1_shed_next_key(int previous_key, enum fm1_shed_key_mode mode, struct fm1_shed_rng *rng);
 
 enum fm1_shed_exercise_type {
-    FM1_SHED_EX_DEGREE = 0,          /* #1 grado funcional */
-    FM1_SHED_EX_CHORD_QUALITY,       /* #4 calidad de acorde */
-    FM1_SHED_EX_INTERVAL_MELODIC,    /* #2 intervalo melódico */
-    FM1_SHED_EX_INTERVAL_HARMONIC,   /* #3 intervalo armónico */
-    FM1_SHED_EX_TENSION,             /* #5 tensión sobre dominante */
-    FM1_SHED_EX_ARPEGGIO,            /* #6 arpegio */
-    FM1_SHED_EX_SCALE,                /* #7 escala/modo */
-    FM1_SHED_EX_BASS_MOVEMENT,       /* #8 movimiento del bajo */
-    FM1_SHED_EX_MELODIC_DICTATION,   /* #9 dictado melódico */
+    FM1_SHED_EX_DEGREE = 0,          /* #1 functional degree */
+    FM1_SHED_EX_CHORD_QUALITY,       /* #4 chord quality */
+    FM1_SHED_EX_INTERVAL_MELODIC,    /* #2 melodic interval */
+    FM1_SHED_EX_INTERVAL_HARMONIC,   /* #3 harmonic interval */
+    FM1_SHED_EX_TENSION,             /* #5 tension over a dominant */
+    FM1_SHED_EX_ARPEGGIO,            /* #6 arpeggio */
+    FM1_SHED_EX_SCALE,                /* #7 scale/mode */
+    FM1_SHED_EX_BASS_MOVEMENT,       /* #8 bass movement */
+    FM1_SHED_EX_MELODIC_DICTATION,   /* #9 melodic dictation */
     FM1_SHED_EX_TYPE_COUNT
 };
 
@@ -88,7 +88,7 @@ struct fm1_shed_question {
     int chord_root;                   /* EX_CHORD_QUALITY, EX_TENSION, EX_ARPEGGIO: pitch class root */
     int interval;                     /* EX_INTERVAL_MELODIC/HARMONIC: signed semitones from the
                                         * reference note (60 + key's pitch class); HARMONIC is
-                                        * always positive ("tocar la nota superior") */
+                                        * always positive ("play the upper note") */
     enum fm1_shed_tension tension;    /* EX_TENSION */
     enum fm1_shed_scale_type scale;   /* EX_SCALE */
     /* EX_ARPEGGIO/BASS_MOVEMENT/MELODIC_DICTATION: the answer sequence, as

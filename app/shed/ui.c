@@ -41,17 +41,23 @@ static const char *const chord_labels[FM1_SHED_CHORD_COUNT] = {
 static const char *const tension_labels[FM1_SHED_TENSION_COUNT] = {
     "9", "B9", "#9", "#11", "13", "B13"
 };
+/* NOTE: the last 5 entries here used to be out of order relative to
+ * enum fm1_shed_scale_type (theory.h) -- a real bug caught while
+ * translating this array, fixed at the same time. The host test suite
+ * doesn't check this array's *content* (it has no display-string
+ * assertions), so it couldn't have caught a labeling mismatch; a live
+ * session at difficulty level 2 showing the wrong scale name would have. */
 static const char *const scale_labels[FM1_SHED_SCALE_COUNT] = {
-    "JONICA", "DORICA", "FRIGIA", "LIDIA", "MIXOLIDIA", "EOLICA", "LOCRIA",
-    "MEN.MELODICA", "LID.DOMINANTE", "LOCRIA NAT2", "ALTERADA", "FRIG.DOMINANTE",
-    "DISM. T-S", "DISM. S-T", "TONOS ENTER.", "BEBOP DOM."
+    "IONIAN", "DORIAN", "PHRYGIAN", "LYDIAN", "MIXOLYDIAN", "AEOLIAN", "LOCRIAN",
+    "MELODIC MIN.", "LYDIAN DOM.", "LOCRIAN NAT2", "ALTERED", "DIM. W-H",
+    "DIM. H-W", "WHOLE TONE", "BEBOP DOM.", "PHRYG. DOM."
 };
 static const char *const exercise_names[FM1_SHED_EX_TYPE_COUNT] = {
-    "GRADO FUNCIONAL", "CALIDAD ACORDE", "INTERVALO MELODICO", "INTERVALO ARMONICO",
-    "TENSION DOMINANTE", "ARPEGIO", "ESCALA / MODO", "MOVIMIENTO BAJO", "DICTADO MELODICO"
+    "FUNCTIONAL DEGREE", "CHORD QUALITY", "MELODIC INTERVAL", "HARMONIC INTERVAL",
+    "DOMINANT TENSION", "ARPEGGIO", "SCALE / MODE", "BASS MOVEMENT", "MELODIC DICTATION"
 };
 static const char *const vamp_view_names[FM1_SHED_VAMP_VIEW_COUNT] = {
-    "ARPEGIO", "ESCALA", "GUIA (3-7)", "NINGUNA"
+    "ARPEGGIO", "SCALE", "GUIDE (3-7)", "NONE"
 };
 
 static int is_sequence_exercise(enum fm1_shed_exercise_type type)
@@ -221,8 +227,8 @@ static void draw_dial_pick(unsigned band_top, const char *prompt, const char *pi
 {
     put_text(band_top, 8, 62, prompt, 1, TEXT, BACK);
     put_text(band_top, 8, 84, pick, 2, ACCENT, BACK);
-    put_text(band_top, 8, 142, "PRESETS ELEGIR", 1, DIM, BACK);
-    put_text(band_top, 8, 154, "GLO CONFIRMAR", 1, DIM, BACK);
+    put_text(band_top, 8, 142, "PRESETS PICK", 1, DIM, BACK);
+    put_text(band_top, 8, 154, "GLO CONFIRM", 1, DIM, BACK);
 }
 
 /* The three sequence-answer exercises (#6, #8, #9) share this layout: a
@@ -264,108 +270,108 @@ static void draw_screen(const struct fm1_shed_ui_state *state, unsigned band_top
          * (pools, generate, check_*) would know what to do with. */
         enum { MENU_COUNT = FM1_SHED_EX_TYPE_COUNT + 1 };
         unsigned i;
-        put_text(band_top, 8, 30, "EJERCICIO", 1, DIM, BACK);
+        put_text(band_top, 8, 30, "EXERCISE", 1, DIM, BACK);
         for (i = 0; i < MENU_COUNT; i++) {
             unsigned y = 42 + i * 13;
             unsigned selected = state->menu_index == i;
-            const char *label = i < FM1_SHED_EX_TYPE_COUNT ? exercise_names[i] : "MODO VAMP";
+            const char *label = i < FM1_SHED_EX_TYPE_COUNT ? exercise_names[i] : "VAMP MODE";
             put_text(band_top, 8, y, selected ? ">" : " ", 1, ACCENT, BACK);
             put_text(band_top, 20, y, label, 1, selected ? ACCENT : DIM, BACK);
         }
-        put_text(band_top, 8, 182, "PRESETS ELEGIR", 1, DIM, BACK);
-        put_text(band_top, 8, 194, "PLAY EMPEZAR", 1, DIM, BACK);
+        put_text(band_top, 8, 182, "PRESETS PICK", 1, DIM, BACK);
+        put_text(band_top, 8, 194, "PLAY START", 1, DIM, BACK);
         break;
     }
     case FM1_SHED_SCREEN_QUESTION:
         put_text(band_top, 8, 38, exercise_names[state->exercise], 1, TEXT, BACK);
         switch (state->exercise) {
         case FM1_SHED_EX_DEGREE:
-            put_text(band_top, 8, 70, "ESCUCHA", 2, TEXT, BACK);
-            put_text(band_top, 8, 96, "TOCA LA NOTA", 1, DIM, BACK);
+            put_text(band_top, 8, 70, "LISTEN", 2, TEXT, BACK);
+            put_text(band_top, 8, 96, "PLAY THE NOTE", 1, DIM, BACK);
             break;
         case FM1_SHED_EX_INTERVAL_MELODIC:
-            put_text(band_top, 8, 70, "ESCUCHA", 2, TEXT, BACK);
-            put_text(band_top, 8, 96, "TOCA LA 2A NOTA", 1, DIM, BACK);
+            put_text(band_top, 8, 70, "LISTEN", 2, TEXT, BACK);
+            put_text(band_top, 8, 96, "PLAY THE 2ND NOTE", 1, DIM, BACK);
             break;
         case FM1_SHED_EX_INTERVAL_HARMONIC:
-            put_text(band_top, 8, 70, "ESCUCHA", 2, TEXT, BACK);
-            put_text(band_top, 8, 96, "TOCA LA NOTA ALTA", 1, DIM, BACK);
+            put_text(band_top, 8, 70, "LISTEN", 2, TEXT, BACK);
+            put_text(band_top, 8, 96, "PLAY THE TOP NOTE", 1, DIM, BACK);
             break;
         case FM1_SHED_EX_CHORD_QUALITY:
-            draw_dial_pick(band_top, "QUE ACORDE ES?", chord_labels[state->chord_pick]);
+            draw_dial_pick(band_top, "WHAT CHORD IS IT?", chord_labels[state->chord_pick]);
             break;
         case FM1_SHED_EX_TENSION:
-            draw_dial_pick(band_top, "QUE TENSION ES?", tension_labels[state->tension_pick]);
+            draw_dial_pick(band_top, "WHAT TENSION IS IT?", tension_labels[state->tension_pick]);
             break;
         case FM1_SHED_EX_SCALE:
-            draw_dial_pick(band_top, "QUE ESCALA ES?", scale_labels[state->scale_pick]);
+            draw_dial_pick(band_top, "WHAT SCALE IS IT?", scale_labels[state->scale_pick]);
             break;
         case FM1_SHED_EX_ARPEGGIO:
-            draw_sequence_prompt(band_top, "TOCA EL ARPEGIO", state->sequence_progress, state->sequence_total);
+            draw_sequence_prompt(band_top, "PLAY THE ARPEGGIO", state->sequence_progress, state->sequence_total);
             break;
         case FM1_SHED_EX_BASS_MOVEMENT:
-            draw_sequence_prompt(band_top, "LAS FUNDAMENTALES", state->sequence_progress, state->sequence_total);
+            draw_sequence_prompt(band_top, "THE ROOT NOTES", state->sequence_progress, state->sequence_total);
             break;
         case FM1_SHED_EX_MELODIC_DICTATION:
-            draw_sequence_prompt(band_top, "TOCALA DE VUELTA", state->sequence_progress, state->sequence_total);
+            draw_sequence_prompt(band_top, "PLAY IT BACK", state->sequence_progress, state->sequence_total);
             break;
         default:
             break;
         }
-        put_text(band_top, 8, 172, "PLAY REPETIR", 1, DIM, BACK);
-        put_text(band_top, 8, 184, "SEQ CADENCIA", 1, DIM, BACK);
-        put_text(band_top, 8, 196, "EDIT REVELAR", 1, DIM, BACK);
-        put_text(band_top, 8, 208, "ARP SIGUIENTE/SALTAR", 1, DIM, BACK);
-        put_text(band_top, 8, 226, "HOME+SCL SALIR", 1, DIM, BACK);
+        put_text(band_top, 8, 172, "PLAY REPEAT", 1, DIM, BACK);
+        put_text(band_top, 8, 184, "SEQ CADENCE", 1, DIM, BACK);
+        put_text(band_top, 8, 196, "EDIT REVEAL", 1, DIM, BACK);
+        put_text(band_top, 8, 208, "ARP NEXT/SKIP", 1, DIM, BACK);
+        put_text(band_top, 8, 226, "HOME+SCL EXIT", 1, DIM, BACK);
         break;
     case FM1_SHED_SCREEN_FEEDBACK:
         put_text(band_top, 8, 38, exercise_names[state->exercise], 1, TEXT, BACK);
-        put_text(band_top, 8, 60, state->correct ? "CORRECTO" : "INCORRECTO", 2,
+        put_text(band_top, 8, 60, state->correct ? "CORRECT" : "INCORRECT", 2,
             state->correct ? GREEN : RED, BACK);
         if (state->question && is_sequence_exercise(state->question->type)) {
-            strcpy(line, "LLEGASTE A ");
-            format_fraction(line + 11, state->sequence_progress, state->sequence_total);
+            strcpy(line, "REACHED ");
+            format_fraction(line + 8, state->sequence_progress, state->sequence_total);
             put_text(band_top, 8, 90, line, 1, TEXT, BACK);
         } else if (state->question) {
             const struct fm1_shed_question *q = state->question;
-            strcpy(line, "ERA ");
+            strcpy(line, "IT WAS ");
             switch (q->type) {
             case FM1_SHED_EX_DEGREE:
-                strcpy(line + 4, pitch_names[fm1_shed_pitch_class(q->key + q->degree)]);
+                strcpy(line + 7, pitch_names[fm1_shed_pitch_class(q->key + q->degree)]);
                 break;
             case FM1_SHED_EX_INTERVAL_MELODIC:
             case FM1_SHED_EX_INTERVAL_HARMONIC:
-                strcpy(line + 4,
+                strcpy(line + 7,
                     pitch_names[fm1_shed_pitch_class(fm1_shed_interval_reference_note(q->key) + q->interval)]);
                 break;
             case FM1_SHED_EX_CHORD_QUALITY:
-                strcpy(line + 4, chord_labels[q->chord]);
+                strcpy(line + 7, chord_labels[q->chord]);
                 break;
             case FM1_SHED_EX_TENSION:
-                strcpy(line + 4, tension_labels[q->tension]);
+                strcpy(line + 7, tension_labels[q->tension]);
                 break;
             case FM1_SHED_EX_SCALE:
-                strcpy(line + 4, scale_labels[q->scale]);
+                strcpy(line + 7, scale_labels[q->scale]);
                 break;
             default:
-                line[4] = 0;
+                line[7] = 0;
                 break;
             }
-            if (line[4])
+            if (line[7])
                 put_text(band_top, 8, 90, line, 1, TEXT, BACK);
         }
-        if (state->session_length) { /* 0 means this came from vamp's "oído", which doesn't track a streak */
-            strcpy(line, "RACHA ");
-            line[append_uint(line, 6, state->streak)] = 0;
+        if (state->session_length) { /* 0 means this came from vamp's "ear" round, which doesn't track a streak */
+            strcpy(line, "STREAK ");
+            line[append_uint(line, 7, state->streak)] = 0;
             put_text(band_top, 8, 112, line, 1, DIM, BACK);
         }
-        put_text(band_top, 8, 150, "ARP SIGUIENTE", 1, DIM, BACK);
-        put_text(band_top, 8, 164, "HOME+SCL SALIR", 1, DIM, BACK);
+        put_text(band_top, 8, 150, "ARP NEXT", 1, DIM, BACK);
+        put_text(band_top, 8, 164, "HOME+SCL EXIT", 1, DIM, BACK);
         break;
     case FM1_SHED_SCREEN_SUMMARY:
-        put_text(band_top, 8, 44, "SESION COMPLETA", 1, ACCENT, BACK);
-        strcpy(line, "ACIERTOS ");
-        format_fraction(line + 9, state->asked && state->asked < state->session_length ?
+        put_text(band_top, 8, 44, "SESSION COMPLETE", 1, ACCENT, BACK);
+        strcpy(line, "SCORE ");
+        format_fraction(line + 6, state->asked && state->asked < state->session_length ?
             state->asked : state->session_length, state->session_length);
         put_text(band_top, 8, 68, line, 1, TEXT, BACK);
         {
@@ -374,46 +380,46 @@ static void draw_screen(const struct fm1_shed_ui_state *state, unsigned band_top
             line[pos] = 0;
         }
         put_text(band_top, 8, 92, line, 2, state->percent >= 70 ? GREEN : AMBER, BACK);
-        strcpy(line, "MEJOR RACHA ");
+        strcpy(line, "BEST STREAK ");
         line[append_uint(line, 12, state->best_streak)] = 0;
         put_text(band_top, 8, 130, line, 1, DIM, BACK);
-        put_text(band_top, 8, 160, "ARP NUEVA SESION", 1, DIM, BACK);
-        put_text(band_top, 8, 174, "HOME+SCL SALIR", 1, DIM, BACK);
+        put_text(band_top, 8, 160, "ARP NEW SESSION", 1, DIM, BACK);
+        put_text(band_top, 8, 174, "HOME+SCL EXIT", 1, DIM, BACK);
         break;
     case FM1_SHED_SCREEN_VAMP: {
         const struct fm1_shed_vamp *vamp = fm1_shed_vamp(state->vamp_index);
         unsigned len;
         put_text(band_top, 8, 38, vamp ? vamp->name : "", 1, TEXT, BACK);
 
-        strcpy(line, "ACTUAL ");
-        len = 7;
+        strcpy(line, "NOW ");
+        len = 4;
         strcpy(line + len, pitch_names[state->vamp_root % 12]);
         len += (unsigned)strlen(pitch_names[state->vamp_root % 12]);
         line[len++] = ' ';
         strcpy(line + len, chord_labels[state->vamp_chord]);
         put_text(band_top, 8, 60, line, 1, ACCENT, BACK);
 
-        strcpy(line, "SIGUE ");
-        len = 6;
+        strcpy(line, "NEXT ");
+        len = 5;
         strcpy(line + len, pitch_names[state->vamp_next_root % 12]);
         len += (unsigned)strlen(pitch_names[state->vamp_next_root % 12]);
         line[len++] = ' ';
         strcpy(line + len, chord_labels[state->vamp_next_chord]);
         put_text(band_top, 8, 76, line, 1, DIM, BACK);
 
-        strcpy(line, "ESCALA ");
-        strcpy(line + 7, scale_labels[state->vamp_scale]);
+        strcpy(line, "SCALE ");
+        strcpy(line + 6, scale_labels[state->vamp_scale]);
         put_text(band_top, 8, 94, line, 1, TEXT, BACK);
 
-        strcpy(line, "VISTA ");
-        strcpy(line + 6, vamp_view_names[state->vamp_view]);
+        strcpy(line, "VIEW ");
+        strcpy(line + 5, vamp_view_names[state->vamp_view]);
         put_text(band_top, 8, 112, line, 1, ACCENT, BACK);
 
-        put_text(band_top, 8, 150, "EDIT VISTA", 1, DIM, BACK);
+        put_text(band_top, 8, 150, "EDIT VIEW", 1, DIM, BACK);
         put_text(band_top, 8, 162, "SEQ VAMP", 1, DIM, BACK);
-        put_text(band_top, 8, 174, "ARP TONALIDAD", 1, DIM, BACK);
-        put_text(band_top, 8, 186, "GLO OIDO", 1, DIM, BACK);
-        put_text(band_top, 8, 204, "HOME+SCL SALIR", 1, DIM, BACK);
+        put_text(band_top, 8, 174, "ARP KEY", 1, DIM, BACK);
+        put_text(band_top, 8, 186, "GLO EAR", 1, DIM, BACK);
+        put_text(band_top, 8, 204, "HOME+SCL EXIT", 1, DIM, BACK);
         break;
     }
     }

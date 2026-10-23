@@ -3,13 +3,14 @@
 #include <stddef.h>
 
 /* Diatonic scale degrees of the major scale, as semitone offsets from the
- * tonic. Used as the level-0 pool for #1 (grado funcional), the pool of
+ * tonic. Used as the level-0 pool for #1 (functional degree), the pool of
  * chord/tension roots for #4/#5, and the diatonic note pool for #9's
  * phrases. */
 static const uint8_t diatonic_degrees[7] = {0, 2, 4, 5, 7, 9, 11};
 
-/* #1 grado funcional: diatonic degrees first, then the five chromatic ones;
- * level 0 only unlocks the diatonic prefix, level >= 1 the whole octave. */
+/* #1 functional degree: diatonic degrees first, then the five chromatic
+ * ones; level 0 only unlocks the diatonic prefix, level >= 1 the whole
+ * octave. */
 static const uint8_t degree_order[12] = {0, 2, 4, 5, 7, 9, 11, 1, 3, 6, 8, 10};
 static const unsigned char degree_level_pool[] = {7, 12};
 
@@ -25,7 +26,7 @@ static const enum fm1_shed_chord_type chord_difficulty_order[FM1_SHED_CHORD_COUN
  * band always covers every chord type. */
 static const unsigned char chord_level_pool[] = {6, 9, FM1_SHED_CHORD_COUNT};
 
-/* #5 tensión sobre dominante: natural 9/13 first (consonant, common),
+/* #5 tension over a dominant: natural 9/13 first (consonant, common),
  * altered ones last. Semitones above the root, un-reduced like theory.h. */
 static const int8_t tension_semitones_table[FM1_SHED_TENSION_COUNT] = {
     [FM1_SHED_TENSION_9] = 14, [FM1_SHED_TENSION_FLAT9] = 13, [FM1_SHED_TENSION_SHARP9] = 15,
@@ -37,7 +38,7 @@ static const enum fm1_shed_tension tension_difficulty_order[FM1_SHED_TENSION_COU
 };
 static const unsigned char tension_level_pool[] = {2, 4, FM1_SHED_TENSION_COUNT};
 
-/* #7 escala/modo: modes of the major scale, then of melodic minor, then the
+/* #7 scale/mode: modes of the major scale, then of melodic minor, then the
  * symmetric/specialty scales -- SHED_SPEC.md's own ordering. */
 static const enum fm1_shed_scale_type scale_difficulty_order[FM1_SHED_SCALE_COUNT] = {
     FM1_SHED_SCALE_IONIAN, FM1_SHED_SCALE_DORIAN, FM1_SHED_SCALE_PHRYGIAN, FM1_SHED_SCALE_LYDIAN,
@@ -49,9 +50,9 @@ static const enum fm1_shed_scale_type scale_difficulty_order[FM1_SHED_SCALE_COUN
 };
 static const unsigned char scale_level_pool[] = {7, 12, FM1_SHED_SCALE_COUNT};
 
-/* #8 movimiento del bajo: short named progressions, root offsets in
- * semitones from the key. SHED_SPEC.md: "II-V-I -> turnarounds -> blues,
- * rhythm changes". The last two still fit the exercise's own "2-4 acordes"
+/* #8 bass movement: short named progressions, root offsets in
+ * semitones from the key. SHED_SPEC.md: "ii-V-I -> turnarounds -> blues,
+ * rhythm changes". The last two still fit the exercise's own "2-4 chords"
  * stimulus length by taking a short, representative fragment of the form
  * rather than the whole 12/32-bar tune. */
 struct progression_step { unsigned char chord; signed char offset; };
@@ -413,9 +414,9 @@ static const struct fm1_shed_vamp_step vamp_blues_f[] = { /* 12-bar jazz blues, 
 static const struct fm1_shed_vamp vamps[FM1_SHED_VAMP_COUNT] = {
     {"MODAL Dm7", vamp_modal_dm7, sizeof vamp_modal_dm7 / sizeof vamp_modal_dm7[0]},
     {"Dm7 - G7", vamp_dm7_g7, sizeof vamp_dm7_g7 / sizeof vamp_dm7_g7[0]},
-    {"II-V-I MENOR", vamp_ii_v_i_minor, sizeof vamp_ii_v_i_minor / sizeof vamp_ii_v_i_minor[0]},
+    {"MINOR II-V-I", vamp_ii_v_i_minor, sizeof vamp_ii_v_i_minor / sizeof vamp_ii_v_i_minor[0]},
     {"CMAJ7-A7-DM7-G7", vamp_turnaround, sizeof vamp_turnaround / sizeof vamp_turnaround[0]},
-    {"BLUES EN F", vamp_blues_f, sizeof vamp_blues_f / sizeof vamp_blues_f[0]},
+    {"BLUES IN F", vamp_blues_f, sizeof vamp_blues_f / sizeof vamp_blues_f[0]},
 };
 
 const struct fm1_shed_vamp *fm1_shed_vamp(unsigned index)

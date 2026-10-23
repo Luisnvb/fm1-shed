@@ -3,8 +3,8 @@
 #define FM1_SHED_PROGRESS_H
 
 /* Session statistics, adaptive difficulty and spaced repetition, RAM only
- * (SHED_SPEC.md section 3 "Sin escrituras en flash en el MVP" and section 5
- * "Pedagogía"). Pure C11, no FM-1 SDK dependency; depends only on
+ * (SHED_SPEC.md section 3 "No flash writes in the MVP" and section 5
+ * "Pedagogy"). Pure C11, no FM-1 SDK dependency; depends only on
  * exercises.h, for the exercise-type enum spaced repetition is indexed by
  * and the RNG spaced repetition's picker draws from. */
 
@@ -42,12 +42,11 @@ unsigned fm1_shed_session_percent(const struct fm1_shed_session *s);
 #define FM1_SHED_ADAPT_DOWN_STREAK 3U
 unsigned fm1_shed_session_adapt_level(const struct fm1_shed_session *s, unsigned level, unsigned max_level);
 
-/* Spaced repetition (section 5 "cada elemento tiene una puntuación; los
- * fallos aparecen más a menudo"): one score per (exercise type, pool
- * index), for the four exercises with a bounded, named pool of answers
- * (grado, calidad de acorde, tensión, escala -- see exercises.h). Scores
- * reset with the session; this is deliberately not persisted (RAM-only
- * MVP, SHED_SPEC.md section 3). */
+/* Spaced repetition (section 5 "each item has a score; misses show up
+ * more often"): one score per (exercise type, pool index), for the four
+ * exercises with a bounded, named pool of answers (degree, chord quality,
+ * tension, scale -- see exercises.h). Scores reset with the session; this
+ * is deliberately not persisted (RAM-only MVP, SHED_SPEC.md section 3). */
 #define FM1_SHED_SCORE_POOL_MAX 16U /* the largest pool is #7's 16 scales */
 #define FM1_SHED_SCORE_MAX 8U
 struct fm1_shed_scores {

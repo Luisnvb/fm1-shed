@@ -30,7 +30,7 @@ enum fm1_shed_action {
     FM1_SHED_ACTION_REVEAL          = 1U << 2, /* EDIT: reveal the answer / vamp: cycle the LED view */
     FM1_SHED_ACTION_NEXT            = 1U << 3, /* ARP:  next question / vamp: next key */
     FM1_SHED_ACTION_TOGGLE_TYPE     = 1U << 4, /* ENV:  switch exercise type */
-    FM1_SHED_ACTION_CONFIRM         = 1U << 5  /* GLO:  confirm the dial's pick / vamp: hear a phrase (oído) */
+    FM1_SHED_ACTION_CONFIRM         = 1U << 5  /* GLO:  confirm the dial's pick / vamp: hear a phrase (ear round) */
 };
 
 /* One poll's worth of input, edge-detected against this module's own
@@ -64,7 +64,7 @@ enum fm1_shed_screen {
     FM1_SHED_SCREEN_QUESTION,
     FM1_SHED_SCREEN_FEEDBACK,
     FM1_SHED_SCREEN_SUMMARY,
-    FM1_SHED_SCREEN_VAMP /* section 6: free play over a loop. The "oído" variant
+    FM1_SHED_SCREEN_VAMP /* section 6: free play over a loop. The "ear" variant
                            * reuses QUESTION/FEEDBACK with exercise forced to
                            * TENSION or SCALE -- it's the same question either way. */
 };
@@ -97,7 +97,7 @@ struct fm1_shed_ui_state {
     enum fm1_shed_tension tension_pick;       /* live dial highlight: TENSION */
     enum fm1_shed_scale_type scale_pick;      /* live dial highlight: SCALE */
     unsigned sequence_progress, sequence_total; /* QUESTION, sequence types only */
-    unsigned asked, session_length;           /* QUESTION/FEEDBACK/SUMMARY; session_length 0 hides "n/m" (vamp's oído) */
+    unsigned asked, session_length;           /* QUESTION/FEEDBACK/SUMMARY; session_length 0 hides "n/m" (vamp's ear round) */
     unsigned streak, best_streak;
     int correct;      /* FEEDBACK only: 1 right, 0 wrong */
     unsigned percent; /* SUMMARY only */

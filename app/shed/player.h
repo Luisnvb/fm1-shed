@@ -104,7 +104,7 @@ unsigned fm1_shed_player_vamp_step_index(unsigned which);
 void fm1_shed_player_lead_note(unsigned midi_note, unsigned on, uint32_t now);
 
 /* Like fm1_shed_player_sequence() with a fixed register and no ascending
- * option, but on the lead track instead of the piano: vamp mode's "oído"
+ * option, but on the lead track instead of the piano: vamp mode's "ear"
  * demonstration phrase plays over the still-running vamp (comping/bass)
  * instead of interrupting it. Returns the time the last note's slot ends. */
 uint32_t fm1_shed_player_lead_phrase(const uint8_t *pitch_classes, unsigned count, int base_note,

@@ -38,7 +38,7 @@ static int last_correct;
 static struct fm1_shed_session session;
 
 /* Vamp mode (section 6). vamp_ear_active marks a QUESTION/FEEDBACK cycle
- * that came from vamp mode's "oído" round (GLO) rather than the 20-question
+ * that came from vamp mode's "ear" round (GLO) rather than the 20-question
  * quiz flow: it reuses the TENSION/SCALE machinery wholesale (same question
  * struct, same dial-pick input handling, same FEEDBACK screen) but must not
  * touch session/scores/level, and returns to SHED_STATE_VAMP afterwards
@@ -76,7 +76,7 @@ static int is_sequence_exercise(enum fm1_shed_exercise_type type)
  * starting at `t`. Shared by start_question(), "repeat stimulus" and
  * replaying the right answer after a miss, so there is exactly one place
  * that knows how each of the nine exercises sounds. Also reused by vamp
- * mode's "oído" round for TENSION, where question.chord_root is the vamp's
+ * mode's "ear" round for TENSION, where question.chord_root is the vamp's
  * current chord instead of a fresh cadence's tonic. */
 static uint32_t schedule_stimulus(uint32_t t)
 {
@@ -157,12 +157,12 @@ static void new_session(uint32_t now)
 }
 
 /* Records the answer (session stats, spaced-repetition score, adaptive
- * difficulty -- skipped for vamp mode's "oído" round, which isn't part of
+ * difficulty -- skipped for vamp mode's "ear" round, which isn't part of
  * the quiz flow those belong to), shows the correct one on the keys when
  * it's key-based, and on a miss replays the stimulus a moment later
- * (SHED_SPEC.md section 5 "reproducción de la respuesta correcta tras un
- * fallo"; skipped for "oído" too, to avoid panic-silencing the vamp that's
- * still supposed to be playing underneath). */
+ * (SHED_SPEC.md section 5 "the correct answer plays back after a miss";
+ * skipped for the "ear" round too, to avoid panic-silencing the vamp
+ * that's still supposed to be playing underneath). */
 static void answer(uint32_t now, int correct)
 {
     if (!vamp_ear_active) {
@@ -253,7 +253,7 @@ static void handle_question_input(uint32_t now, const struct fm1_shed_input *in)
     }
     /* Common controls: only reached when the exercise-specific handling
      * above didn't already answer the question this poll. "Repeat cadence"
-     * is skipped during vamp's "oído" round -- no fresh cadence was played
+     * is skipped during vamp's "ear" round -- no fresh cadence was played
      * to repeat, and injecting one would clash with the still-running vamp. */
     if (in->action & FM1_SHED_ACTION_REPEAT_CADENCE) {
         if (!vamp_ear_active) {
@@ -304,7 +304,7 @@ static void start_vamp(uint32_t now)
     state = SHED_STATE_VAMP;
 }
 
-/* The "oído" variant (section 6): a short phrase on the lead track, over
+/* The "ear" variant (section 6): a short phrase on the lead track, over
  * the still-running vamp, built from either the tension pool (when the
  * current chord is a plain dominant 7) or the current chord's suggested
  * scale otherwise -- then the same TENSION/SCALE question/dial-pick/
@@ -370,7 +370,7 @@ static void handle_vamp_input(uint32_t now, const struct fm1_shed_input *in)
     } else if (in->action & FM1_SHED_ACTION_NEXT) { /* ARP: next key */
         current_key = fm1_shed_next_key(current_key, FM1_SHED_KEY_FOURTHS, &rng);
         start_vamp(now);
-    } else if (in->action & FM1_SHED_ACTION_CONFIRM) { /* GLO: oído round */
+    } else if (in->action & FM1_SHED_ACTION_CONFIRM) { /* GLO: ear round */
         start_vamp_ear(now);
     }
 }
