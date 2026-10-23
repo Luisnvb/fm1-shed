@@ -1,3 +1,20 @@
+# Shed
+
+A jazz ear-training mode for the [M-VAVE FM-1](https://www.m-vave.com/products/fm-1) synthesizer, built on top of [FM1 Open](https://github.com/m-vave/fm1_open).
+
+Enter Shed with **HOME+SCL** and drill functional degrees, chord qualities, melodic and harmonic intervals, dominant tensions, arpeggios, scales/modes, bass movement and melodic dictation, right on the device — no app, no computer. Sessions adapt their difficulty to your streak and use spaced repetition to resurface what you keep missing. **Vamp mode** loops a chord progression (bass + comping) while you improvise over it, with key-LED guidance and an "ear" round that quizzes you on what's sounding.
+
+See [`SHED_SPEC.md`](SHED_SPEC.md) for the full design: the theory core, the exercise set, vamp mode, the on-device screens and the phase-by-phase build log.
+
+```
+.\tools\Build-Web.ps1 -LocalPreview   # build the browser simulator
+.\tools\Test-Shed.ps1                 # run Shed's host test suite
+```
+
+Shed lives entirely under [`app/shed/`](app/shed/), with a 2-line hook into `app/screen.c`; it does not modify the rest of the firmware. Below is the original FM1 Open README this project is built on.
+
+---
+
 # FM1 Open V14
 
 English · [简体中文](README.zh-CN.md)
