@@ -8,6 +8,8 @@ Un modo de entrenamiento auditivo de jazz para el sintetizador [M-VAVE FM-1](htt
 
 Entra en Shed con **HOME+SCL** y practica grados funcionales, calidades de acorde, intervalos melódicos y armónicos, tensiones de dominante, arpegios, escalas/modos, movimiento del bajo y dictado melódico, directamente en el dispositivo — sin app, sin ordenador. Las sesiones adaptan su dificultad a tu racha de aciertos y usan repetición espaciada para hacer reaparecer lo que más fallas. El **modo Vamp** repite una progresión de acordes (bajo + acompañamiento) mientras improvisas sobre ella, con guía por LEDs en las teclas y una ronda de "oído" que te pregunta sobre lo que está sonando.
 
+![El menú de Shed en la pantalla del FM-1: los 9 ejercicios más el modo Vamp](docs/shed-menu.png)
+
 Consulta [`SHED_SPEC.md`](SHED_SPEC.md) (en inglés) para el diseño completo: el núcleo teórico, el conjunto de ejercicios, el modo Vamp, las pantallas del dispositivo y el registro de desarrollo fase por fase.
 
 ¿Quieres probar los ejercicios sin tener un FM-1 a mano? [**Shed Web**](https://shed-web.vercel.app) es una versión para navegador que reutiliza el mismo núcleo teórico y la misma pedagogía — [código fuente](https://github.com/Luisnvb/shed-web).

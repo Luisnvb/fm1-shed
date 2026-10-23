@@ -8,6 +8,8 @@ A jazz ear-training mode for the [M-VAVE FM-1](https://www.m-vave.com/products/f
 
 Enter Shed with **HOME+SCL** and drill functional degrees, chord qualities, melodic and harmonic intervals, dominant tensions, arpeggios, scales/modes, bass movement and melodic dictation, right on the device — no app, no computer. Sessions adapt their difficulty to your streak and use spaced repetition to resurface what you keep missing. **Vamp mode** loops a chord progression (bass + comping) while you improvise over it, with key-LED guidance and an "ear" round that quizzes you on what's sounding.
 
+![Shed's menu on the FM-1's screen: the 9 exercises plus Vamp mode](docs/shed-menu.png)
+
 See [`SHED_SPEC.md`](SHED_SPEC.md) for the full design: the theory core, the exercise set, vamp mode, the on-device screens and the phase-by-phase build log.
 
 Want to try the exercises without an FM-1 in hand? [**Shed Web**](https://shed-web.vercel.app) is a browser version carrying over the same theory core and pedagogy — [source](https://github.com/Luisnvb/shed-web).
