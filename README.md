@@ -2,6 +2,8 @@
 
 [![License: GPLv3 with linking exception](https://img.shields.io/badge/license-GPLv3%20%2B%20linking%20exception-blue.svg)](LICENSE.md)
 
+English · [Español](README.es.md)
+
 A jazz ear-training mode for the [M-VAVE FM-1](https://www.m-vave.com/products/fm-1) synthesizer, built on top of [FM1 Open](https://github.com/m-vave/fm1_open).
 
 Enter Shed with **HOME+SCL** and drill functional degrees, chord qualities, melodic and harmonic intervals, dominant tensions, arpeggios, scales/modes, bass movement and melodic dictation, right on the device — no app, no computer. Sessions adapt their difficulty to your streak and use spaced repetition to resurface what you keep missing. **Vamp mode** loops a chord progression (bass + comping) while you improvise over it, with key-LED guidance and an "ear" round that quizzes you on what's sounding.
@@ -19,7 +21,7 @@ Shed lives entirely under [`app/shed/`](app/shed/), with a 2-line hook into `app
 
 # FM1 Open V14
 
-English · [简体中文](README.zh-CN.md)
+English · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
 8 tracks, 8 sample slots, 16 FX demos; binary SDK included.
 
