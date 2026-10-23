@@ -10,6 +10,8 @@ Entra en Shed con **HOME+SCL** y practica grados funcionales, calidades de acord
 
 Consulta [`SHED_SPEC.md`](SHED_SPEC.md) (en inglés) para el diseño completo: el núcleo teórico, el conjunto de ejercicios, el modo Vamp, las pantallas del dispositivo y el registro de desarrollo fase por fase.
 
+¿Quieres probar los ejercicios sin tener un FM-1 a mano? [**Shed Web**](https://shed-web.vercel.app) es una versión para navegador que reutiliza el mismo núcleo teórico y la misma pedagogía — [código fuente](https://github.com/Luisnvb/shed-web).
+
 ```
 .\tools\Build-Web.ps1 -LocalPreview   # compila el simulador de navegador
 .\tools\Test-Shed.ps1                 # ejecuta la batería de tests de Shed

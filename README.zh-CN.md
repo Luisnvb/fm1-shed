@@ -10,6 +10,8 @@
 
 完整设计请参阅 [`SHED_SPEC.md`](SHED_SPEC.md)（英文）：理论核心、练习体系、Vamp 模式、设备屏幕以及分阶段开发记录。
 
+手边没有 FM-1，也想试试这些练习？[**Shed Web**](https://shed-web.vercel.app) 是一个浏览器版本，沿用了同样的理论核心与教学设计——[源码](https://github.com/Luisnvb/shed-web)。
+
 ```
 .\tools\Build-Web.ps1 -LocalPreview   # 编译浏览器模拟器
 .\tools\Test-Shed.ps1                 # 运行 Shed 的测试套件

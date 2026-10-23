@@ -10,6 +10,8 @@ Enter Shed with **HOME+SCL** and drill functional degrees, chord qualities, melo
 
 See [`SHED_SPEC.md`](SHED_SPEC.md) for the full design: the theory core, the exercise set, vamp mode, the on-device screens and the phase-by-phase build log.
 
+Want to try the exercises without an FM-1 in hand? [**Shed Web**](https://shed-web.vercel.app) is a browser version carrying over the same theory core and pedagogy — [source](https://github.com/Luisnvb/shed-web).
+
 ```
 .\tools\Build-Web.ps1 -LocalPreview   # build the browser simulator
 .\tools\Test-Shed.ps1                 # run Shed's host test suite
